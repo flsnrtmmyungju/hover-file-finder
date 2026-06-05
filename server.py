@@ -518,12 +518,17 @@ def deduplicate_scan():
         dl_is_epub  = dl["ext"]  == ".epub"
         nov_is_epub = best_nov["ext"] == ".epub"
 
+        def fsize(path):
+            try: return round(os.path.getsize(path) / (1024*1024), 1)
+            except: return 0
+
         # txt vs epub → epub 삭제
         if dl_is_epub and nov_is_txt:
             items.append({
                 "delete_path": dl["path"], "keep_path": best_nov["path"],
                 "delete_name": dl["name"], "keep_name": best_nov["name"],
                 "delete_loc": "다운로드", "keep_loc": "archive",
+                "delete_size": fsize(dl["path"]), "keep_size": fsize(best_nov["path"]),
                 "reason": f"유사도 {best_score:.0%} — txt 우선 (epub 삭제)",
             })
         elif dl_is_txt and nov_is_epub:
@@ -531,14 +536,15 @@ def deduplicate_scan():
                 "delete_path": best_nov["path"], "keep_path": dl["path"],
                 "delete_name": best_nov["name"], "keep_name": dl["name"],
                 "delete_loc": "archive", "keep_loc": "다운로드",
+                "delete_size": fsize(best_nov["path"]), "keep_size": fsize(dl["path"]),
                 "reason": f"유사도 {best_score:.0%} — txt 우선 (epub 삭제)",
             })
         else:
-            # 같은 확장자 → 다운로드 복사본 삭제
             items.append({
                 "delete_path": dl["path"], "keep_path": best_nov["path"],
                 "delete_name": dl["name"], "keep_name": best_nov["name"],
                 "delete_loc": "다운로드", "keep_loc": "archive",
+                "delete_size": fsize(dl["path"]), "keep_size": fsize(best_nov["path"]),
                 "reason": f"유사도 {best_score:.0%}",
             })
 

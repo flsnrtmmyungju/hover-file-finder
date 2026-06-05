@@ -331,13 +331,15 @@
       // 삭제될 파일
       const delRow = document.createElement("div");
       Object.assign(delRow.style, { marginBottom: "4px", fontSize: "12px" });
-      delRow.innerHTML = `<span style="color:#f38ba8">🗑 삭제</span> <span style="color:#f38ba8">[${item.delete_loc}]</span> ${item.delete_name}`;
+      const delSize = item.delete_size != null ? ` <span style="color:#6c7086">${item.delete_size}MB</span>` : "";
+      delRow.innerHTML = `<span style="color:#f38ba8">🗑 삭제</span> <span style="color:#f38ba8">[${item.delete_loc}]</span> ${item.delete_name}${delSize}`;
       el.appendChild(delRow);
 
       // 유지될 파일
       const keepRow = document.createElement("div");
       Object.assign(keepRow.style, { marginBottom: "6px", fontSize: "12px" });
-      keepRow.innerHTML = `<span style="color:#a6e3a1">✓ 유지</span> <span style="color:#a6e3a1">[${item.keep_loc}]</span> ${item.keep_name}`;
+      const keepSize = item.keep_size != null ? ` <span style="color:#6c7086">${item.keep_size}MB</span>` : "";
+      keepRow.innerHTML = `<span style="color:#a6e3a1">✓ 유지</span> <span style="color:#a6e3a1">[${item.keep_loc}]</span> ${item.keep_name}${keepSize}`;
       el.appendChild(keepRow);
 
       // 이유
