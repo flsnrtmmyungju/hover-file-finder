@@ -523,19 +523,20 @@
     mouseY = e.clientY;
   }, { passive: true });
 
-  // 텍스트 클릭 시 검색
-  document.addEventListener("click", (e) => {
+  // 텍스트 우클릭 시 검색
+  document.addEventListener("contextmenu", (e) => {
     if (dedupActive) return;
     if (overlay?.contains(e.target)) return;
 
     const text = extractText(e.target);
     if (!text || text.length < MIN_TEXT_LEN) {
-      // 텍스트 없는 곳 클릭 → 닫기
       hide();
       return;
     }
 
-    // 같은 텍스트 재클릭 → 닫기
+    e.preventDefault(); // 브라우저 기본 우클릭 메뉴 차단
+
+    // 같은 텍스트 재우클릭 → 닫기
     if (text === lastText) {
       hide();
       return;
@@ -544,5 +545,10 @@
     lastText = text;
     clearTimeout(timer);
     fetchAndShow(text);
+  });
+
+  // 팝업 바깥 좌클릭 시 닫기
+  document.addEventListener("click", (e) => {
+    if (!overlay?.contains(e.target)) hide();
   });
 })();
