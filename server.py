@@ -340,7 +340,7 @@ def search():
         return jsonify({"error": "폴더 접근 권한 없음"}), 500
 
     query_clean = re.sub(r"\.\w+$", "", query.strip())
-    query_clean = clean_name(query_clean, skip_spacing=True)  # 검색어는 Kiwi 제외
+    query_clean = clean_name(query_clean)  # 파일명과 동일한 정규화 적용
     query_words = {
         w for w in re.findall(r"[가-힣a-z]+", query_clean.lower())
         if len(w) >= min_word_len and w not in EXT_STOPWORDS
