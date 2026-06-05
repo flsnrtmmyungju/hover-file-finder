@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+spacing_cache.json
+.claude/
+extension/site.js
+config.json

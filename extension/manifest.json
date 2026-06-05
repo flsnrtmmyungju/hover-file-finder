@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "File Hover Finder",
+  "version": "1.0",
+  "description": "마우스를 텍스트 위에 올리면 다운로드 폴더에서 유사한 파일을 찾아 표시합니다.",
+  "permissions": [],
+  "host_permissions": [
+    "http://localhost:7823/*",
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://*.com/*"],
+      "js": ["site.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
