@@ -203,6 +203,9 @@ def clean_name(stem, skip_spacing=False):
     s = s.replace("완결", "완")
 
     # 4단계: 기타 정리
+    s = s.replace("본편", "본")                       # 본편 → 본
+    s = re.sub(r"\d+편", "", s)                       # 숫자+편 삭제 (183편 등)
+    s = re.sub(r"(?<![가-힣])및(?![가-힣])", ",", s)   # 및 → ,
     # 빈 () 제거, [텍스트] 전부 제거, (txt) 등 제거
     s = re.sub(r"\(\s*\d+\s*\)", "", s)  # (1) (2) 등 숫자만 있는 괄호
     s = re.sub(r"\(\s*\)", "", s)
