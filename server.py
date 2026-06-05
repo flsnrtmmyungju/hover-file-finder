@@ -13,7 +13,6 @@ except ImportError:
     sys.exit(1)
 
 app = Flask(__name__)
-CORS(app)
 
 CONFIG_PATH = Path(__file__).parent / "config.json"
 
@@ -21,6 +20,20 @@ CONFIG_PATH = Path(__file__).parent / "config.json"
 def load_config():
     with open(CONFIG_PATH, encoding="utf-8") as f:
         return json.load(f)
+
+
+# config의 allowed_origins 패턴으로 CORS 허용 (* 와일드카드 지원)
+import fnmatch as _fnmatch
+try:
+    _patterns = load_config().get("allowed_origins", [])
+    if _patterns:
+        def _origin_ok(origin):
+            return any(_fnmatch.fnmatch(origin, p) for p in _patterns)
+        CORS(app, origins=_origin_ok)
+    else:
+        CORS(app, origins=["http://localhost:7823"])
+except Exception:
+    CORS(app, origins=["http://localhost:7823"])
 
 
 def resolve_downloads_dir(raw_path):

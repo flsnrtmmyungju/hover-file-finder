@@ -1,8 +1,6 @@
 (function () {
   "use strict";
 
-  // site.js 의 SITE_PATTERN 에 매칭되는 도메인에서만 작동
-  if (typeof SITE_PATTERN === "undefined" || !SITE_PATTERN.test(location.hostname)) return;
 
   const SERVER = "http://localhost:7823/search";
   const DEBOUNCE_MS = 400;
