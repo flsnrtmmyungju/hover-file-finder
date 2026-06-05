@@ -14,7 +14,9 @@ except ImportError:
 
 app = Flask(__name__)
 
-CONFIG_PATH = Path(__file__).parent / "config.json"
+# EXE로 실행 시 실행파일 옆 경로 사용, 스크립트 실행 시 파일 옆 경로 사용
+_BASE_DIR = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).parent
+CONFIG_PATH = _BASE_DIR / "config.json"
 
 
 def load_config():
@@ -36,6 +38,10 @@ except Exception:
 
 
 def resolve_downloads_dir(raw_path):
+    # EXE(Windows)에서는 경로 그대로 사용
+    if getattr(sys, 'frozen', False):
+        return raw_path
+    # WSL 개발 환경: Windows 경로 → /mnt/c/... 변환
     if raw_path and len(raw_path) >= 2 and raw_path[1] == ":":
         drive = raw_path[0].lower()
         rest = raw_path[2:].replace("\\", "/")
@@ -47,7 +53,7 @@ import time as _time
 import json as _json
 
 _spacing_cache = {}
-_cache_path = Path(__file__).parent / "spacing_cache.json"
+_cache_path = _BASE_DIR / "spacing_cache.json"
 if _cache_path.exists():
     try:
         with open(_cache_path, encoding="utf-8") as _f:

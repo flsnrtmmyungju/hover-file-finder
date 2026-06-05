@@ -1,0 +1,62 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install flask flask-cors kiwipiepy pyinstaller
+
+      - name: Build EXE
+        run: |
+          pyinstaller `
+            --onefile `
+            --windowed `
+            --name "HoverFileFinder" `
+            --add-data "compound_words.py;." `
+            --add-data "config.example.json;." `
+            --hidden-import "flask_cors" `
+            --hidden-import "kiwipiepy" `
+            main.py
+
+      - name: Package Chrome extension
+        run: |
+          Compress-Archive -Path extension -DestinationPath extension.zip
+
+      - name: Copy config example
+        run: |
+          Copy-Item config.example.json dist\config.example.json
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body: |
+            ## 설치 방법
+
+            1. `HoverFileFinder.exe` 다운로드 후 원하는 폴더에 저장
+            2. `extension.zip` 압축 해제
+            3. `HoverFileFinder.exe` 실행 → 폴더 경로 설정 → 저장
+            4. Chrome: `chrome://extensions` → 개발자 모드 → `extension` 폴더 로드
+
+            ## 파일 목록
+            - `HoverFileFinder.exe` - 서버 + 설정 UI
+            - `extension.zip` - Chrome 확장 프로그램
+          files: |
+            dist/HoverFileFinder.exe
+            extension.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
