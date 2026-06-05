@@ -505,10 +505,15 @@
       const res = await fetch(`${SERVER}?text=${encodeURIComponent(text)}`);
       if (!res.ok) { hide(); return; }
       const data = await res.json();
-      if (!data || data.no_search) { hide(); return; }
+      if (!data || data.no_search) {
+        hide();
+        lastText = "";
+        return;
+      }
       show(data.exact || [], data.partial || []);
     } catch {
       hide();
+      lastText = "";
     }
   }
 
@@ -518,32 +523,26 @@
     mouseY = e.clientY;
   }, { passive: true });
 
-  // 텍스트 위에 마우스 올릴 때
-  document.addEventListener("mouseover", (e) => {
-    const target = e.target;
-    if (!target || overlay?.contains(target)) return;
-    if (overlayHovered) return;
+  // 텍스트 클릭 시 검색
+  document.addEventListener("click", (e) => {
+    if (dedupActive) return;
+    if (overlay?.contains(e.target)) return;
 
-    const text = extractText(target);
-    if (!text || text.length < MIN_TEXT_LEN) return;
+    const text = extractText(e.target);
+    if (!text || text.length < MIN_TEXT_LEN) {
+      // 텍스트 없는 곳 클릭 → 닫기
+      hide();
+      return;
+    }
 
-    // 같은 텍스트면 무시 (오버레이 유지)
-    if (text === lastText) return;
+    // 같은 텍스트 재클릭 → 닫기
+    if (text === lastText) {
+      hide();
+      return;
+    }
 
     lastText = text;
     clearTimeout(timer);
-
-    timer = setTimeout(() => fetchAndShow(text), DEBOUNCE_MS);
-  });
-
-  // 페이지 밖으로 나가면 숨김
-  document.addEventListener("mouseleave", () => {
-    clearTimeout(timer);
-    hide();
-  });
-
-  // 팝업 바깥 클릭 시 닫기
-  document.addEventListener("click", (e) => {
-    if (!overlay?.contains(e.target)) hide();
+    fetchAndShow(text);
   });
 })();
