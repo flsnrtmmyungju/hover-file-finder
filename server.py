@@ -55,20 +55,30 @@ def resolve_downloads_dir(raw_path):
 
 import time as _time
 import json as _json
+import hashlib as _hashlib
+
+from compound_words import COMPOUND_WORDS as _CW_FOR_HASH
+_COMPOUND_HASH = _hashlib.md5(str(_CW_FOR_HASH).encode()).hexdigest()[:8]
 
 _spacing_cache = {}
 _cache_path = _BASE_DIR / "spacing_cache.json"
 if _cache_path.exists():
     try:
         with open(_cache_path, encoding="utf-8") as _f:
-            _spacing_cache = _json.load(_f)
+            _loaded = _json.load(_f)
+        if _loaded.get("__compound_hash__") == _COMPOUND_HASH:
+            _spacing_cache = {k: v for k, v in _loaded.items() if k != "__compound_hash__"}
+        else:
+            print(f"[캐시] 복합어 목록 변경 감지 → 캐시 초기화", flush=True)
     except Exception:
         pass
 
 def _save_cache():
     try:
+        data = dict(_spacing_cache)
+        data["__compound_hash__"] = _COMPOUND_HASH
         with open(_cache_path, "w", encoding="utf-8") as _f:
-            _json.dump(_spacing_cache, _f, ensure_ascii=False, indent=2)
+            _json.dump(data, _f, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
