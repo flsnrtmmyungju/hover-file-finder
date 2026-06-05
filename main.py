@@ -1,14 +1,58 @@
 import sys
 import os
-import json
-import threading
-import tkinter as tk
-from tkinter import ttk, filedialog, scrolledtext, messagebox
-from pathlib import Path
+import traceback
 
-# PyInstaller 번들 경로 추가
-if getattr(sys, 'frozen', False):
-    sys.path.insert(0, sys._MEIPASS)
+# ── 가장 먼저 로그 파일 열기 ──────────────────────────────────────
+_exe_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+_LOG = os.path.join(_exe_dir, "startup.log")
+
+def _log(msg):
+    try:
+        with open(_LOG, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+    except:
+        pass
+    print(msg)
+
+_log("=== 시작 ===")
+_log(f"Python: {sys.version}")
+_log(f"exe: {sys.executable}")
+_log(f"frozen: {getattr(sys, 'frozen', False)}")
+
+try:
+    # PyInstaller 번들 경로 추가
+    if getattr(sys, 'frozen', False):
+        sys.path.insert(0, sys._MEIPASS)
+        _log(f"MEIPASS: {sys._MEIPASS}")
+
+    _log("importing json/threading...")
+    import json
+    import threading
+    from pathlib import Path
+
+    _log("importing tkinter...")
+    import tkinter as tk
+    from tkinter import ttk, filedialog, scrolledtext, messagebox
+
+    _log("importing server...")
+    import server as _srv
+    _log("server imported OK")
+
+except Exception as _e:
+    _log(f"ERROR: {traceback.format_exc()}")
+    try:
+        import tkinter as _tk2
+        from tkinter import messagebox as _mb
+        _tk2.Tk().withdraw()
+        _mb.showerror("시작 오류", f"오류가 발생했습니다.\n{_e}\n\n{_LOG} 파일을 확인하세요.")
+    except:
+        pass
+    input("엔터를 눌러 닫기...")
+    sys.exit(1)
+
+_log("imports complete")
+
+from pathlib import Path
 
 # EXE 실행 시 실행파일 옆 경로, 스크립트 실행 시 파일 옆 경로
 BASE_DIR = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).parent
