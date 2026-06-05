@@ -486,16 +486,29 @@
     return text.slice(0, 100);
   }
 
+  function showLoading() {
+    const el = getOverlay();
+    el.innerHTML = "";
+    const msg = document.createElement("div");
+    Object.assign(msg.style, { color: "#6c7086", fontSize: "12px", padding: "4px 0" });
+    msg.textContent = "검색 중...";
+    el.appendChild(msg);
+    el.style.left = mouseX + "px";
+    el.style.top = (mouseY + 12) + "px";
+    el.style.setProperty("display", "block", "important");
+  }
+
   async function fetchAndShow(text) {
     if (dedupActive) return;
+    showLoading();
     try {
       const res = await fetch(`${SERVER}?text=${encodeURIComponent(text)}`);
-      if (!res.ok) return;
+      if (!res.ok) { hide(); return; }
       const data = await res.json();
-      if (!data || data.no_search) return;
+      if (!data || data.no_search) { hide(); return; }
       show(data.exact || [], data.partial || []);
     } catch {
-      // 서버 꺼져있으면 무시
+      hide();
     }
   }
 

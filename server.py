@@ -484,8 +484,13 @@ def rename_novels():
     downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
 
     renamed, skipped, errors = 0, 0, []
+    total = sum(len(files) for _, _, files in os.walk(downloads_dir))
+    processed = 0
+    print(f"[이름정리] 시작 - 총 {total}개 파일", flush=True)
+
     for root, dirs, files in os.walk(downloads_dir):
         for f in files:
+            processed += 1
             src = os.path.join(root, f)
             p = Path(f)
             new_stem = clean_name(p.stem)
@@ -500,9 +505,11 @@ def rename_novels():
             try:
                 os.rename(src, dst)
                 renamed += 1
+                print(f"[이름정리] ({processed}/{total}) {f!r} → {new_name!r}", flush=True)
             except Exception as e:
                 errors.append(f)
 
+    print(f"[이름정리] 완료 - 변경 {renamed}개 / 스킵 {skipped}개", flush=True)
     return jsonify({"renamed": renamed, "skipped": skipped, "errors": errors})
 
 
