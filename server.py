@@ -177,6 +177,8 @@ try:
     from kiwipiepy import Kiwi as _Kiwi
     _kiwi = _Kiwi()
 
+    _kiwi_cache = {}
+
     def fix_spacing(text):
         s = text
 
@@ -189,9 +191,9 @@ try:
                         s = re.sub(pat, word, s)
                         break
 
-        # 2. Kiwi 띄어쓰기 교정 (4자 이상 붙은 한글에만 적용)
+        # 2. Kiwi 띄어쓰기 교정 (4자 이상 붙은 한글에만 적용, 결과 캐시)
         if re.search(r"[가-힣]{4,}", s):
-            spaced = _kiwi.space(s)
+            spaced = _kiwi_cache.get(s) or _kiwi_cache.setdefault(s, _kiwi.space(s))
             # Kiwi가 재분리한 복합어 다시 결합
             for word in COMPOUND_WORDS:
                 if word in s and word not in spaced:
@@ -346,31 +348,28 @@ def search():
     if not query or len(query) < 2:
         return jsonify({"exact": [], "partial": []})
 
+    # os.walk 한 번에 all_files + file_paths 동시 수집
+    all_files = []
+    file_paths = {}
     try:
-        all_files = []
         for root, dirs, files in os.walk(downloads_dir):
             for f in files:
                 all_files.append(f)
+                if f not in file_paths:
+                    file_paths[f] = os.path.join(root, f)
     except FileNotFoundError:
         return jsonify({"error": f"폴더를 찾을 수 없음: {downloads_dir}"}), 500
     except PermissionError:
         return jsonify({"error": "폴더 접근 권한 없음"}), 500
 
     query_clean = re.sub(r"\.\w+$", "", query.strip())
-    query_clean = clean_name(query_clean)  # 파일명과 동일한 정규화 적용
+    query_clean = clean_name(query_clean)
     query_words = {
         w for w in re.findall(r"[가-힣a-z]+", query_clean.lower())
         if len(w) >= min_word_len and w not in EXT_STOPWORDS
     }
     if not query_words:
         return jsonify({"no_search": True})
-
-    # 파일명 → 전체 경로 맵핑
-    file_paths = {}
-    for root, dirs, files in os.walk(downloads_dir):
-        for f in files:
-            if f not in file_paths:
-                file_paths[f] = os.path.join(root, f)
 
     exact = []
     partial = []
