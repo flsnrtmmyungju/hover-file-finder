@@ -270,9 +270,8 @@
   function startDedupFlow(items, triggerBtn) {
     dedupActive = true;
     triggerBtn.disabled = true;
-    let idx = 0;
-    let deletedCount = 0;
     const el = getOverlay();
+    const checks = new Map(); // item index → checkbox element
 
     function closeDedup() {
       dedupActive = false;
@@ -281,120 +280,107 @@
       hide();
     }
 
-    // ESC 키로 닫기
     const escHandler = (e) => {
       if (e.key === "Escape") { closeDedup(); document.removeEventListener("keydown", escHandler); }
     };
     document.addEventListener("keydown", escHandler);
 
-    function renderItem() {
-      if (idx >= items.length) {
-        el.innerHTML = "";
-        const done = document.createElement("div");
-        Object.assign(done.style, { color: "#a6e3a1", fontWeight: "700", padding: "8px 0" });
-        done.textContent = `✓ 완료: ${deletedCount}개 삭제됨`;
-        el.appendChild(done);
-        triggerBtn.textContent = `✓ ${deletedCount}개 삭제`;
-        dedupActive = false;
-        document.removeEventListener("keydown", escHandler);
-        setTimeout(() => {
-          triggerBtn.textContent = "중복삭제";
-          triggerBtn.disabled = false;
-        }, 3000);
-        return;
-      }
+    // ── 체크리스트 렌더 ──────────────────────────────────────────
+    el.innerHTML = "";
 
-      const item = items[idx];
-      el.innerHTML = "";
+    // 헤더
+    const headerRow = document.createElement("div");
+    Object.assign(headerRow.style, { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" });
+    const hdr = document.createElement("div");
+    Object.assign(hdr.style, { color: "#89b4fa", fontWeight: "700", fontSize: "11px" });
+    hdr.textContent = `중복 ${items.length}개 — 삭제할 항목 선택`;
+    const closeBtn = document.createElement("span");
+    closeBtn.textContent = "✕";
+    Object.assign(closeBtn.style, { cursor: "pointer", color: "#6c7086", fontSize: "14px" });
+    closeBtn.addEventListener("click", (e) => { e.stopPropagation(); document.removeEventListener("keydown", escHandler); closeDedup(); });
+    headerRow.appendChild(hdr);
+    headerRow.appendChild(closeBtn);
+    el.appendChild(headerRow);
 
-      // 헤더 행 (진행상황 + X 닫기 버튼)
-      const headerRow = document.createElement("div");
-      Object.assign(headerRow.style, { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" });
+    // 전체선택/해제 버튼
+    const selRow = document.createElement("div");
+    Object.assign(selRow.style, { display: "flex", gap: "6px", marginBottom: "6px" });
+    ["전체선택", "전체해제"].forEach((label, i) => {
+      const b = document.createElement("button");
+      b.textContent = label;
+      Object.assign(b.style, { padding: "2px 8px", background: "#45475a", color: "#cdd6f4", border: "none", borderRadius: "3px", fontSize: "10px", cursor: "pointer" });
+      b.addEventListener("click", (e) => { e.stopPropagation(); checks.forEach(cb => cb.checked = i === 0); });
+      selRow.appendChild(b);
+    });
+    el.appendChild(selRow);
 
-      const prog = document.createElement("div");
-      Object.assign(prog.style, { color: "#89b4fa", fontWeight: "700", fontSize: "11px" });
-      prog.textContent = `중복 확인 ${idx + 1} / ${items.length}`;
+    // 항목 목록
+    const listDiv = document.createElement("div");
+    Object.assign(listDiv.style, { maxHeight: "220px", overflowY: "auto", marginBottom: "8px" });
 
-      const closeBtn = document.createElement("span");
-      closeBtn.textContent = "✕";
-      Object.assign(closeBtn.style, { cursor: "pointer", color: "#6c7086", fontSize: "14px", lineHeight: "1" });
-      closeBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        document.removeEventListener("keydown", escHandler);
-        closeDedup();
-      });
+    items.forEach((item, i) => {
+      const row = document.createElement("div");
+      Object.assign(row.style, { display: "flex", alignItems: "flex-start", gap: "6px", padding: "5px 0", borderTop: "1px solid #313244" });
 
-      headerRow.appendChild(prog);
-      headerRow.appendChild(closeBtn);
-      el.appendChild(headerRow);
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = true;
+      Object.assign(cb.style, { marginTop: "2px", flexShrink: "0", cursor: "pointer" });
+      checks.set(i, cb);
 
-      // 삭제될 파일
-      const delRow = document.createElement("div");
-      Object.assign(delRow.style, { marginBottom: "4px", fontSize: "12px" });
+      const info = document.createElement("div");
+      Object.assign(info.style, { fontSize: "11px", lineHeight: "1.5" });
       const delSize = item.delete_size != null ? ` <span style="color:#6c7086">${item.delete_size}MB</span>` : "";
-      delRow.innerHTML = `<span style="color:#f38ba8">🗑 삭제</span> <span style="color:#f38ba8">[${item.delete_loc}]</span> ${item.delete_name}${delSize}`;
-      el.appendChild(delRow);
-
-      // 유지될 파일
-      const keepRow = document.createElement("div");
-      Object.assign(keepRow.style, { marginBottom: "6px", fontSize: "12px" });
       const keepSize = item.keep_size != null ? ` <span style="color:#6c7086">${item.keep_size}MB</span>` : "";
-      keepRow.innerHTML = `<span style="color:#a6e3a1">✓ 유지</span> <span style="color:#a6e3a1">[${item.keep_loc}]</span> ${item.keep_name}${keepSize}`;
-      el.appendChild(keepRow);
+      info.innerHTML =
+        `<div><span style="color:#f38ba8">🗑</span> [${item.delete_loc}] ${item.delete_name}${delSize}</div>` +
+        `<div><span style="color:#a6e3a1">✓</span> [${item.keep_loc}] ${item.keep_name}${keepSize}</div>` +
+        `<div style="color:#6c7086;font-size:10px">${item.reason}</div>`;
 
-      // 이유
-      const reason = document.createElement("div");
-      Object.assign(reason.style, { color: "#6c7086", fontSize: "11px", marginBottom: "10px" });
-      reason.textContent = item.reason;
-      el.appendChild(reason);
+      row.appendChild(cb);
+      row.appendChild(info);
+      listDiv.appendChild(row);
+    });
+    el.appendChild(listDiv);
 
-      // 버튼 행
-      const btnRow = document.createElement("div");
-      Object.assign(btnRow.style, { display: "flex", gap: "6px" });
-
-      const confirmBtn = document.createElement("button");
-      confirmBtn.textContent = "삭제";
-      Object.assign(confirmBtn.style, {
-        flex: "1", padding: "5px 0", background: "#f38ba8",
-        color: "#1e1e2e", border: "none", borderRadius: "4px",
-        fontWeight: "700", fontSize: "12px", cursor: "pointer",
-      });
-      confirmBtn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        confirmBtn.disabled = true;
+    // 삭제 실행 버튼
+    const execBtn = document.createElement("button");
+    execBtn.textContent = "선택 삭제";
+    Object.assign(execBtn.style, {
+      width: "100%", padding: "6px 0", background: "#f38ba8",
+      color: "#1e1e2e", border: "none", borderRadius: "4px",
+      fontWeight: "700", fontSize: "12px", cursor: "pointer",
+    });
+    execBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      execBtn.disabled = true;
+      execBtn.textContent = "삭제 중...";
+      let deleted = 0;
+      for (const [i, cb] of checks) {
+        if (!cb.checked) continue;
         try {
           const r = await fetch(
-            `http://localhost:7823/delete-path?path=${encodeURIComponent(item.delete_path)}`,
+            `http://localhost:7823/delete-path?path=${encodeURIComponent(items[i].delete_path)}`,
             { method: "POST" }
           );
           const d = await r.json();
-          if (d.ok) deletedCount++;
+          if (d.ok) deleted++;
         } catch {}
-        idx++;
-        renderItem();
-      });
+      }
+      el.innerHTML = "";
+      const done = document.createElement("div");
+      Object.assign(done.style, { color: "#a6e3a1", fontWeight: "700", padding: "8px 0" });
+      done.textContent = `✓ ${deleted}개 삭제 완료`;
+      el.appendChild(done);
+      triggerBtn.textContent = `✓ ${deleted}개 삭제`;
+      dedupActive = false;
+      document.removeEventListener("keydown", escHandler);
+      setTimeout(() => { triggerBtn.textContent = "중복삭제"; triggerBtn.disabled = false; }, 3000);
+    });
+    el.appendChild(execBtn);
 
-      const skipBtn = document.createElement("button");
-      skipBtn.textContent = "건너뛰기";
-      Object.assign(skipBtn.style, {
-        flex: "1", padding: "5px 0", background: "#45475a",
-        color: "#cdd6f4", border: "none", borderRadius: "4px",
-        fontWeight: "700", fontSize: "12px", cursor: "pointer",
-      });
-      skipBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        idx++;
-        renderItem();
-      });
-
-      btnRow.appendChild(confirmBtn);
-      btnRow.appendChild(skipBtn);
-      el.appendChild(btnRow);
-
-      el.style.display = "block";
-    }
-
-    renderItem();
+    el.style.setProperty("display", "block", "important");
+    el.scrollTop = 0;
   }
 
   function show(exact, partial) {
