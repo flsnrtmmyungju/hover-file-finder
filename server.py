@@ -412,6 +412,9 @@ def rename_novels():
             except Exception as e:
                 errors.append(f)
 
+            if processed % 200 == 0:
+                print(f"[이름정리] 진행 중... ({processed}/{total}) 변경 {renamed}개", flush=True)
+
     _save_cache()  # Kiwi 캐시 일괄 저장
     print(f"[이름정리] 완료 - 변경 {renamed}개 / 스킵 {skipped}개", flush=True)
     return jsonify({"renamed": renamed, "skipped": skipped, "errors": errors})
