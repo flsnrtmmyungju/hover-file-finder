@@ -222,13 +222,7 @@ def clean_name(stem, skip_spacing=False):
     s = s.replace("_", " ")
     s = re.sub(r" +", " ", s).strip()
     if not skip_spacing:
-        spaced = fix_spacing(s)
-        # Kiwi가 만든 단음절 연속을 다시 합치기: "헌 터" → "헌터"
-        prev = None
-        while prev != spaced:
-            prev = spaced
-            spaced = re.sub(r"(?<![가-힣])([가-힣]) ([가-힣])(?![가-힣])", r"\1\2", spaced)
-        s = spaced
+        s = fix_spacing(s)
     # 띄어쓰기 후 재처리 - 한글이 아닌 문자로 둘러싸인 단어 치환
     s = re.sub(r"(?<![가-힣])외전(?![가-힣])", " 외 ", s)
     s = re.sub(r"(?<![가-힣])후기(?![가-힣])", " 후 ", s)
