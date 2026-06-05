@@ -104,6 +104,10 @@ try:
         # 5. N회차 패턴: "13회 차" → "13회차"
         s = re.sub(r"(\d+회)\s+차(?![가-힣])", r"\1차", s)
 
+        # 6. 제일 끝 "완"/"미완" 앞 공백 보장
+        s = re.sub(r"(?<!\s)미완$", " 미완", s)
+        s = re.sub(r"(?<!\s)완$", " 완", s)
+
         return s
 
 except Exception:
@@ -232,9 +236,6 @@ def clean_name(stem, skip_spacing=False):
     # 한글 1~2자만 남은 빈 괄호 정리
     s = re.sub(r"[\(\[]\s*[가-힣]{0,3}\s*[\)\]]", "", s)
     s = re.sub(r" +", " ", s).strip()
-    # 제일 끝 "완"/"미완"이 붙어있으면 공백 추가
-    s = re.sub(r"(?<!\s)미완$", " 미완", s)
-    s = re.sub(r"(?<!\s)완$", " 완", s)
     return s
 
 
