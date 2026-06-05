@@ -169,27 +169,35 @@ try:
     _kiwi = _Kiwi()
 
     def fix_spacing(text):
-        if not re.search(r"[가-힣]{4,}", text):
-            return text
+        s = text
 
-        # 1. Kiwi 띄어쓰기 교정
-        spaced = _kiwi.space(text)
-
-        # 2. 복합어 재결합: Kiwi가 쪼갠 경우 복원
+        # 1. 복합어 재결합 (Kiwi 전, 원본에서 직접 처리)
         for word in COMPOUND_WORDS:
-            if word in text and word not in spaced:
-                # 모든 분할 위치 패턴 시도
+            if word not in s:
                 for i in range(1, len(word)):
                     pat = re.escape(word[:i]) + r"\s+" + re.escape(word[i:])
-                    spaced = re.sub(pat, word, spaced)
+                    if re.search(pat, s):
+                        s = re.sub(pat, word, s)
+                        break
 
-        # 3. X급 패턴: "F 급", "S 급", "초월 급" → "F급", "S급", "초월급"
-        spaced = re.sub(r"([A-Za-z0-9가-힣])\s+급(?![가-힣])", r"\1급", spaced)
+        # 2. Kiwi 띄어쓰기 교정 (4자 이상 붙은 한글에만 적용)
+        if re.search(r"[가-힣]{4,}", s):
+            spaced = _kiwi.space(s)
+            # Kiwi가 재분리한 복합어 다시 결합
+            for word in COMPOUND_WORDS:
+                if word in s and word not in spaced:
+                    for i in range(1, len(word)):
+                        pat = re.escape(word[:i]) + r"\s+" + re.escape(word[i:])
+                        spaced = re.sub(pat, word, spaced)
+            s = spaced
 
-        # 4. 숫자+한글: "1 위", "3 인방" → "1위", "3인방"
-        spaced = re.sub(r"(?<![가-힣])(\d+)\s+([가-힣])", r"\1\2", spaced)
+        # 3. X급 패턴
+        s = re.sub(r"([A-Za-z0-9가-힣])\s+급(?![가-힣])", r"\1급", s)
 
-        return spaced
+        # 4. 숫자+한글
+        s = re.sub(r"(?<![가-힣])(\d+)\s+([가-힣])", r"\1\2", s)
+
+        return s
 
 except Exception:
     def fix_spacing(text):
