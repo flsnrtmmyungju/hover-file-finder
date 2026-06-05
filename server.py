@@ -219,6 +219,10 @@ EXT_STOPWORDS = {"txt", "pdf", "doc", "docx", "zip", "rar", "alz", "hwp",
                  "xlsx", "pptx", "mp3", "mp4", "jpg", "png", "gif", "exe",
                  "mb", "kb", "gb", "tb", "pb"}
 
+def strip_episode(text):
+    """숫자-숫자(화수 패턴)부터 뒷부분 제거 → 순수 제목만 추출"""
+    return re.sub(r'\s*\d+[-~]\d+.*$', '', text).strip()
+
 
 def join_single_syllables(text):
     """한글이 한 글자씩 공백으로 분리된 경우 합치기"""
@@ -230,7 +234,8 @@ def join_single_syllables(text):
 
 
 def score_filename(query_words, filename):
-    name_no_ext = join_single_syllables(Path(filename).stem.lower())
+    # 화수 패턴 이후 제거 후 순수 제목으로만 비교
+    name_no_ext = join_single_syllables(strip_episode(Path(filename).stem.lower()))
     file_words = {
         w for w in re.findall(r"[가-힣a-z]+", name_no_ext)
         if len(w) >= 2 and w not in EXT_STOPWORDS
@@ -364,6 +369,7 @@ def search():
 
     query_clean = re.sub(r"\.\w+$", "", query.strip())
     query_clean = clean_name(query_clean)
+    query_clean = strip_episode(query_clean)  # 화수 패턴 이후 제거
     query_words = {
         w for w in re.findall(r"[가-힣a-z]+", query_clean.lower())
         if len(w) >= min_word_len and w not in EXT_STOPWORDS
