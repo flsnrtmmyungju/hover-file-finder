@@ -70,8 +70,6 @@ try:
     from kiwipiepy import Kiwi as _Kiwi
     _kiwi = _Kiwi()
 
-    _kiwi_cache = {}
-
     def fix_spacing(text):
         s = text
 
@@ -84,9 +82,12 @@ try:
                         s = re.sub(pat, word, s)
                         break
 
-        # 2. Kiwi 띄어쓰기 교정 (4자 이상 붙은 한글에만 적용, 결과 캐시)
+        # 2. Kiwi 띄어쓰기 교정 (4자 이상 붙은 한글에만 적용, 영구 캐시 사용)
         if re.search(r"[가-힣]{4,}", s):
-            spaced = _kiwi_cache.get(s) or _kiwi_cache.setdefault(s, _kiwi.space(s))
+            if s not in _spacing_cache:
+                _spacing_cache[s] = _kiwi.space(s)
+                _save_cache()
+            spaced = _spacing_cache[s]
             # Kiwi가 재분리한 복합어 다시 결합
             for word in COMPOUND_WORDS:
                 if word in s and word not in spaced:
