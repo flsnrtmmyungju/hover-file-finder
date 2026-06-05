@@ -22,14 +22,13 @@ def load_config():
         return json.load(f)
 
 
-# config의 allowed_origins 패턴으로 CORS 허용 (* 와일드카드 지원)
-import fnmatch as _fnmatch
+# config의 allowed_origins 패턴으로 CORS 허용 (* 와일드카드 → 정규식 변환)
 try:
     _patterns = load_config().get("allowed_origins", [])
     if _patterns:
-        def _origin_ok(origin):
-            return any(_fnmatch.fnmatch(origin, p) for p in _patterns)
-        CORS(app, origins=_origin_ok)
+        def _to_regex(p):
+            return "^" + re.escape(p).replace(r"\*", ".*") + "$"
+        CORS(app, origins=[_to_regex(p) for p in _patterns])
     else:
         CORS(app, origins=["http://localhost:7823"])
 except Exception:
