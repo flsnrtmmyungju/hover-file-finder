@@ -181,7 +181,8 @@ HANJA_C         = "完"        # 完
 
 
 def clean_name(stem, skip_spacing=False):
-    s = stem
+    # 특수 공백 문자 → 일반 공백
+    s = stem.replace('\xa0', ' ').replace('​', '').replace('　', ' ')
 
     # 1단계: 한자 -> 한글 (괄호 없는 단순 치환)
     s = s.replace(HANJA_COMPLETE,  "완")
