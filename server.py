@@ -232,6 +232,11 @@ def clean_name(stem, skip_spacing=False):
     # 한글 1~2자만 남은 빈 괄호 정리
     s = re.sub(r"[\(\[]\s*[가-힣]{0,3}\s*[\)\]]", "", s)
     s = re.sub(r" +", " ", s).strip()
+    # 어디서든 "미 완" → "미완" 최종 보정
+    s = re.sub(r"미\s+완", "미완", s)
+    # 끝 완/미완 앞 공백 보장 (fix_spacing 못 탄 경우 포함)
+    s = re.sub(r"(?<!\s)미완$", " 미완", s)
+    s = re.sub(r"(?<!\s)완$", " 완", s)
     return s
 
 
