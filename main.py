@@ -6,9 +6,21 @@ import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext, messagebox
 from pathlib import Path
 
+# PyInstaller 번들 경로 추가
+if getattr(sys, 'frozen', False):
+    sys.path.insert(0, sys._MEIPASS)
+
 # EXE 실행 시 실행파일 옆 경로, 스크립트 실행 시 파일 옆 경로
 BASE_DIR = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).parent
 CONFIG_PATH = BASE_DIR / "config.json"
+
+try:
+    import server as _srv
+except Exception as _e:
+    import tkinter as _tk
+    _tk.Tk().withdraw()
+    messagebox.showerror("시작 오류", f"서버 모듈 로드 실패:\n{_e}")
+    sys.exit(1)
 
 DEFAULT_CONFIG = {
     "downloads_dir": "",

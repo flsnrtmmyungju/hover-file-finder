@@ -27,12 +27,12 @@ jobs:
         run: |
           pyinstaller `
             --onefile `
-            --windowed `
             --name "HoverFileFinder" `
-            --add-data "compound_words.py;." `
-            --add-data "config.example.json;." `
             --hidden-import "flask_cors" `
             --hidden-import "kiwipiepy" `
+            --hidden-import "compound_words" `
+            --hidden-import "engineio.async_drivers.threading" `
+            --collect-all "kiwipiepy" `
             main.py
 
       - name: Package Chrome extension

@@ -14,6 +14,10 @@ except ImportError:
 
 app = Flask(__name__)
 
+# PyInstaller 번들 경로를 sys.path에 추가
+if getattr(sys, 'frozen', False):
+    sys.path.insert(0, sys._MEIPASS)
+
 # EXE로 실행 시 실행파일 옆 경로 사용, 스크립트 실행 시 파일 옆 경로 사용
 _BASE_DIR = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).parent
 CONFIG_PATH = _BASE_DIR / "config.json"
