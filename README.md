@@ -1,211 +1,109 @@
 # hover-file-finder
 
-웹페이지에서 텍스트 위에 마우스를 올리면, 로컬 다운로드 폴더에서 유사한 파일을 찾아 팝업으로 보여주는 도구입니다.
+웹페이지에서 텍스트를 **우클릭**하면, 로컬 다운로드 폴더에서 유사한 파일을 찾아 팝업으로 보여주는 도구입니다.
 
-Chrome 확장 프로그램 + Python 로컬 서버 구조로 동작합니다.
-
----
-
-## 파일 구조
-
-```
-hover-file-finder/
-├── server.py                    # Python 로컬 서버 (핵심 로직)
-├── config.json                  # 실제 설정 파일 (git 제외, 로컬 전용)
-├── config.example.json          # 설정 파일 템플릿 (git 관리)
-├── requirements.txt             # Python 패키지 목록
-├── extension/
-│   ├── manifest.json            # Chrome 확장 프로그램 설정
-│   └── content.js               # 확장 프로그램 동작 스크립트
-└── spacing_cache.json           # 띄어쓰기 교정 캐시 (자동 생성, git 제외)
-```
+Chrome 확장 프로그램 + 로컬 서버 구조로 동작합니다.
 
 ---
 
-## 각 파일 설명
+## 설치 방법 선택
 
-### `server.py`
-
-Flask 기반 로컬 HTTP 서버. `http://localhost:7823` 에서 실행됩니다.
-
-**주요 엔드포인트:**
-
-| 엔드포인트 | 메서드 | 설명 |
+| 방법 | 장점 | 단점 |
 |---|---|---|
-| `/search` | GET | 텍스트로 다운로드 폴더에서 파일 검색 |
-| `/rename` | GET/POST | 이름정리 - 전체 파일명 일괄 정리 |
-| `/rename-file` | GET/POST | 특정 파일 이름 변경 |
-| `/organize` | POST | .txt/.epub 파일을 archive 폴더로 이동 |
-| `/delete` | GET/POST | 파일명으로 파일 삭제 |
-| `/delete-path` | GET/POST | 절대 경로로 파일 삭제 |
-| `/deduplicate-scan` | GET/POST | 다운로드 폴더와 archive 폴더 중복 파일 스캔 |
-| `/deduplicate` | GET/POST | 중복 파일 자동 삭제 |
-| `/status` | GET | 서버 상태 및 다운로드 폴더 정보 확인 |
-
-**주요 함수:**
-
-- `clean_name(stem)` — 파일명 정리 함수. 한자 변환, 괄호 제거, 불필요한 태그 삭제, 띄어쓰기 교정 등을 수행합니다.
-- `score_filename(query_words, filename)` — 검색어와 파일명의 유사도 점수 계산
-- `fix_spacing(text)` — kiwipiepy를 이용한 한글 띄어쓰기 교정 (4자 이상 붙은 한글에만 적용)
-- `join_single_syllables(text)` — 글자 사이 공백이 있는 경우 합치기
+| **EXE (권장)** | WSL/Python 불필요, 더블클릭 실행 | 한글 띄어쓰기 교정 없음 |
+| **WSL 서버** | 한글 띄어쓰기 교정 포함 전체 기능 | WSL + Python 설치 필요 |
 
 ---
 
-### `config.json` (로컬 전용, git 미포함)
+## 방법 A: EXE로 실행 (간단)
 
-개인 경로 및 설정을 담는 파일입니다. **`.gitignore`에 포함되어 git에 올라가지 않습니다.**
+### 1. 다운로드
 
-`config.example.json`을 복사하여 생성하고 값을 수정하세요.
+**[Releases 페이지](https://github.com/flsnrtmmyungju/hover-file-finder/releases)** 에서 최신 버전 다운로드:
+- `HoverFileFinder.exe` — 서버 + 설정 UI
+- `extension.zip` — Chrome 확장 프로그램
 
-```bash
-cp config.example.json config.json
-```
+### 2. EXE 실행 및 설정
 
-```json
-{
-  "downloads_dir": "C:\\Users\\본인계정\\Downloads",
-  "archive_folder": "archive",
-  "allowed_origins": ["https://yoursite.com"],
-  "port": 7823,
-  "max_results": 10,
-  "min_word_length": 2
-}
-```
+1. `HoverFileFinder.exe`를 원하는 폴더에 저장 후 실행
+2. Windows SmartScreen 경고 → **추가 정보 → 실행** 클릭
+3. 설정 창에서:
+   - **다운로드 폴더**: `📁 선택` 버튼으로 다운로드 폴더 지정
+   - **Archive 폴더명**: 파일이동 시 생성할 하위 폴더명 (예: `정리`)
+   - **허용 사이트 URL**: 사용할 사이트 URL 입력 (예: `https://mysite*.com`)
+4. **저장** 클릭
 
-| 키 | 설명 |
-|---|---|
-| `downloads_dir` | 검색할 다운로드 폴더 경로 (Windows 경로 사용) |
-| `archive_folder` | 파일이동 시 이동할 하위 폴더명 |
-| `allowed_origins` | 서버 접근을 허용할 사이트 URL 목록 **(보안 필수 설정)** |
-| `port` | 서버 포트 번호 (기본값: 7823) |
-| `max_results` | 검색 결과 최대 개수 |
-| `min_word_length` | 검색에 사용할 최소 단어 길이 |
+> EXE 실행 후 같은 폴더에 `config.json`이 자동 생성됩니다.
 
-> **`allowed_origins` 보안 주의**  
-> 이 값을 설정하지 않으면 서버가 모든 사이트의 요청을 수락합니다.  
-> 악성 사이트에서 파일 삭제/이름변경 요청을 보낼 수 있으므로, **반드시 사용할 사이트 URL만 입력**하세요.
+### 3. Chrome 확장 프로그램 설치
 
-### `config.example.json`
+1. `extension.zip` 압축 해제 → `extension` 폴더 생성
+2. Chrome: `chrome://extensions` 접속
+3. 우측 상단 **개발자 모드** 활성화
+4. **압축해제된 확장 프로그램을 로드합니다** 클릭
+5. `extension` 폴더 선택
 
-`config.json`의 템플릿 파일입니다. 실제 경로나 개인정보 없이 구조만 포함되어 git으로 관리됩니다.
+### 4. 사용
+
+- 사이트에서 파일명 텍스트 **우클릭** → 팝업 표시
+- 팝업 **바깥 좌클릭** 또는 **✕ 버튼** 으로 닫기
 
 ---
 
-### `requirements.txt`
+## 방법 B: WSL 서버로 실행 (전체 기능)
 
-필요한 Python 패키지 목록입니다.
-
-```
-flask>=3.0.0
-flask-cors>=4.0.0
-```
-
-선택 패키지 (한글 띄어쓰기 교정):
-```bash
-pip3 install kiwipiepy
-```
-
----
-
-### `extension/manifest.json`
-
-Chrome 확장 프로그램의 메타정보 및 권한 설정 파일입니다.
-
-- `host_permissions`: localhost:7823 접근 허용
-- `content_scripts`: 모든 `.com` 사이트에 스크립트 주입 (실제 허용은 서버 CORS로 제어)
-
----
-
-### `extension/content.js`
-
-웹페이지에 삽입되어 실행되는 스크립트입니다.  
-서버의 `allowed_origins` 설정과 일치하는 사이트에서만 정상 동작합니다.
-
-**주요 동작:**
-
-1. 마우스가 텍스트 위에 올라가면 400ms 후 서버에 검색 요청
-2. 결과를 마우스 커서 아래 팝업으로 표시
-3. 팝업 내 기능:
-   - **이름정리** (하늘색): 다운로드 폴더 전체 파일명 일괄 정리
-   - **파일이동** (보라색): .txt/.epub 파일을 archive 폴더로 이동
-   - **중복삭제** (빨간색): 중복 파일을 확인 후 순차 삭제
-   - **파일명 옆 ✏ 버튼**: 파일명 인라인 수정
-   - **파일명 옆 🗑 버튼**: 파일 삭제 (확인 후)
-   - **✕ 버튼 / ESC**: 팝업 닫기
-
-**검색 로직:**
-- 정확 일치 (초록 배경): 모든 검색어 단어가 파일명에 포함된 경우
-- 부분 일치: 일부 단어 또는 부분 문자열이 일치하는 경우
-- 점수 높은 순 정렬
-
----
-
-## 새 PC 세팅 방법 (처음부터 설치)
+한글 띄어쓰기 자동 교정(kiwipiepy) 포함. 이름정리 기능이 더 정교합니다.
 
 ### 0. 사전 준비
 
-**WSL2 설치** (Windows에서 Linux 환경 구성)
-
-PowerShell을 관리자 권한으로 실행 후:
+**WSL2 설치** — PowerShell 관리자 권한으로:
 ```powershell
 wsl --install
 ```
-설치 후 재시작. Ubuntu가 기본으로 설치됩니다.
+설치 후 재시작. Ubuntu가 기본 설치됩니다.
 
-**Python3 설치 확인** (WSL 터미널에서)
+**Python3 확인** (WSL 터미널):
 ```bash
-python3 --version   # 3.10 이상이어야 함
-```
-
-없으면 설치:
-```bash
+python3 --version   # 3.10 이상
+# 없으면:
 sudo apt update && sudo apt install python3 python3-pip -y
 ```
 
----
-
 ### 1. 레포 클론
 
-WSL 터미널을 열고:
 ```bash
 cd ~
 git clone https://github.com/flsnrtmmyungju/hover-file-finder.git
 cd hover-file-finder
 ```
 
----
-
-### 2. Python 패키지 설치
+### 2. 패키지 설치
 
 ```bash
 pip3 install -r requirements.txt
-pip3 install kiwipiepy   # 한글 띄어쓰기 교정 (선택사항, 권장)
+pip3 install kiwipiepy   # 한글 띄어쓰기 교정 (권장)
 ```
 
----
-
-### 3. `config.json` 생성
+### 3. config.json 생성
 
 ```bash
 cp config.example.json config.json
 ```
 
-`config.json`을 열어 본인 환경에 맞게 수정하세요.
+`config.json` 편집:
 
 ```json
 {
   "downloads_dir": "C:\\Users\\본인계정\\Downloads",
-  "archive_folder": "원하는폴더명",
-  "allowed_origins": ["https://사용할사이트.com"],
+  "archive_folder": "정리",
+  "allowed_origins": ["https://사용할사이트*.com"],
   "port": 7823,
   "max_results": 10,
   "min_word_length": 2
 }
 ```
 
-> WSL에서는 `C:\Users\...` Windows 경로를 그대로 써도 자동으로 `/mnt/c/...`로 변환됩니다.
-
----
+> `C:\...` Windows 경로를 그대로 쓰면 WSL이 자동으로 `/mnt/c/...`로 변환합니다.
 
 ### 4. 서버 실행
 
@@ -214,69 +112,91 @@ cd ~/hover-file-finder
 python3 server.py
 ```
 
-정상 실행 시 아래 메시지가 출력됩니다:
-```
-서버 시작: http://localhost:7823
-다운로드 폴더: /mnt/c/Users/...
- * Running on http://127.0.0.1:7823
-```
-
-> 서버는 Chrome 확장 프로그램이 동작할 때마다 실행되어 있어야 합니다.  
-> 터미널을 닫으면 서버도 종료됩니다.
-
----
-
 ### 5. Chrome 확장 프로그램 설치
 
-**extension 폴더를 Windows에서 접근 가능한 위치로 복사:**
-
-WSL 터미널에서:
 ```bash
+# extension 폴더를 Windows로 복사
 cp -r ~/hover-file-finder/extension /mnt/c/Users/본인계정/Documents/extension
 ```
 
-**Chrome에서 설치:**
-
-1. Chrome 주소창에 `chrome://extensions` 입력
-2. 우측 상단 **개발자 모드** 토글 활성화
-3. **압축해제된 확장 프로그램을 로드합니다** 클릭
-4. 파일 탐색기에서 `C:\Users\본인계정\Documents\extension` 폴더 선택
-5. **File Hover Finder** 확장이 목록에 나타나면 완료
+Chrome: `chrome://extensions` → 개발자 모드 → `C:\Users\본인계정\Documents\extension` 폴더 로드
 
 ---
 
-### 6. 동작 확인
+## 팝업 기능
 
-1. `python3 server.py` 서버가 실행 중인지 확인
-2. 브라우저에서 `http://localhost:7823/status` 접속 → JSON 응답이 오면 정상
-3. `config.json`의 `allowed_origins`에 설정한 사이트 접속
-4. 텍스트 위에 마우스를 올리면 팝업이 뜨는지 확인
+| 기능 | 설명 |
+|---|---|
+| 파일 목록 | 초록 배경 = 정확 일치 / 흰색 = 부분 일치 |
+| **이름정리** (하늘색) | 다운로드 폴더 전체 파일명 일괄 정리 |
+| **파일이동** (보라색) | .txt/.epub 파일을 archive 폴더로 이동 |
+| **중복삭제** (빨간색) | 중복 파일 확인 후 순차 삭제 |
+| **✏ 버튼** | 파일명 인라인 수정 |
+| **🗑 버튼** | 파일 삭제 (확인 후) |
+| 우클릭 | 검색 팝업 열기 |
+| 좌클릭 / ✕ / ESC | 팝업 닫기 |
 
 ---
 
-### 트러블슈팅
+## 이름정리 규칙
 
-**서버 포트 충돌 오류**
+파일명 정리 시 자동으로 적용되는 변환:
+
+| 변환 | 예시 |
+|---|---|
+| 한자 → 한글 | 完→완, 完結→완, 未完→미완, 外傳→외 |
+| 연재중/연재 → 미완 | `연재중` → `미완` |
+| 후기 → 후, 포함 삭제 | `후기포함` → `후` |
+| 외전 → 외 | `외전` → `외` |
+| 본편 → 본 | `본편` → `본` |
+| 숫자+편 삭제 | `183편` → `` |
+| 및 → , | `A 및 B` → `A , B` |
+| 불필요 태그 제거 | `@작가명`, `ⓒ저작권`, `[텍스트]` 삭제 |
+| 빈 괄호 제거 | `()`, `[]` 삭제 |
+| 끝 완/미완 공백 | `1-200완` → `1-200 완` |
+| 특수공백 정규화 | `\xa0`, `​` → 일반 공백 |
+| 복합어 결합 | `흑 기사` → `흑기사`, `돌 싱` → `돌싱` |
+| 한글 띄어쓰기 교정 | `아포칼립스에집을숨김` → `아포칼립스에 집을 숨김` (**WSL 전용**) |
+
+---
+
+## config.json 설정값
+
+| 키 | 설명 |
+|---|---|
+| `downloads_dir` | 검색할 다운로드 폴더 경로 |
+| `archive_folder` | 파일이동 시 생성할 하위 폴더명 |
+| `allowed_origins` | 서버 접근을 허용할 사이트 URL (`*` 와일드카드 지원) |
+| `port` | 서버 포트 (기본: 7823) |
+| `max_results` | 검색 결과 최대 개수 |
+| `min_word_length` | 검색 최소 단어 길이 |
+
+> **보안**: `allowed_origins`를 설정하지 않으면 모든 사이트의 요청을 수락합니다. 반드시 사용하는 사이트만 등록하세요.
+
+---
+
+## 트러블슈팅
+
+**팝업이 안 뜨는 경우**
+- `http://localhost:7823/status` 접속 → 서버 실행 확인
+- `config.json`의 `allowed_origins`에 현재 사이트 URL 포함 여부 확인
+- `chrome://extensions` → File Hover Finder 새로고침(↺) → 페이지 F5
+
+**WSL 서버 포트 충돌**
 ```bash
 kill -9 $(lsof -t -i:7823) && python3 server.py
 ```
 
-**팝업이 안 뜨는 경우**
-- `chrome://extensions` → File Hover Finder 새로고침(↺) 후 페이지 F5
-- 서버가 실행 중인지 확인: `http://localhost:7823/status`
-- `config.json`의 `allowed_origins`에 현재 사이트 URL이 포함되어 있는지 확인
-
-**extension 폴더 수정 후 적용**
+**extension 수정 후 적용 (WSL)**
 ```bash
 cp ~/hover-file-finder/extension/content.js /mnt/c/Users/본인계정/Documents/extension/content.js
 ```
-그 후 `chrome://extensions` → 새로고침(↺)
+→ `chrome://extensions` 새로고침(↺)
 
 ---
 
 ## 동작 환경
 
-- **OS**: Windows + WSL2 (Ubuntu)
+- **OS**: Windows (EXE) / Windows + WSL2 (서버)
 - **브라우저**: Chrome / Edge (Chromium 기반)
-- **Python**: 3.10+
-- **서버**: WSL에서 실행
+- **Python**: 3.10+ (WSL 서버 방식만 필요)
