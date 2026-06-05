@@ -444,71 +444,102 @@ def deduplicate_scan():
     if not os.path.isdir(novel_dir):
         return jsonify({"error": "archive 폴더가 없습니다"}), 404
 
-    # archive 폴더 파일 수집
-    novel_files = {}
+    min_word_len = config.get("min_word_length", 2)
+
+    def file_words(filename):
+        """파일명에서 제목 단어 추출 (화수 제거, 숫자 제외)"""
+        stem = strip_episode(Path(filename).stem.lower())
+        return {w for w in re.findall(r"[가-힣a-z]+", stem)
+                if len(w) >= min_word_len and w not in EXT_STOPWORDS}
+
+    def title_score(words1, words2):
+        """두 단어 집합 유사도 (0~1)"""
+        if not words1 or not words2:
+            return 0.0
+        common = words1 & words2
+        score = float(len(common))
+        for qw in words1 - common:
+            for fw in words2:
+                if qw in fw or fw in qw:
+                    score += 0.7
+                    break
+        return score / max(len(words1), len(words2), 1)
+
+    MATCH_THRESHOLD = 0.8  # 이 점수 이상이면 중복으로 판단
+
+    # archive 폴더 파일 수집 {파일명: {ext: path, words: set}}
+    novel_files = []
     for root, dirs, files in os.walk(novel_dir):
         for f in files:
-            p = Path(f)
-            stem = p.stem
-            ext = p.suffix.lower()
-            if stem not in novel_files:
-                novel_files[stem] = {}
-            novel_files[stem][ext] = os.path.join(root, f)
+            novel_files.append({
+                "name": f,
+                "path": os.path.join(root, f),
+                "ext":  Path(f).suffix.lower(),
+                "words": file_words(f),
+            })
 
     # 다운로드 최상위 파일 수집
-    dl_files = {}
+    dl_files = []
     for f in os.listdir(downloads_dir):
         path = os.path.join(downloads_dir, f)
         if not os.path.isfile(path):
             continue
-        p = Path(f)
-        if p.stem not in dl_files:
-            dl_files[p.stem] = {}
-        dl_files[p.stem][p.suffix.lower()] = path
+        dl_files.append({
+            "name": f,
+            "path": path,
+            "ext":  Path(f).suffix.lower(),
+            "words": file_words(f),
+        })
 
     items = []
-    for stem, dl_exts in dl_files.items():
-        if stem not in novel_files:
+    matched_dl = set()
+
+    for dl in dl_files:
+        if not dl["words"]:
             continue
-        novel_exts = novel_files[stem]
+        best_score = 0.0
+        best_nov = None
 
-        for ext in dl_exts:
-            if ext in novel_exts:
-                items.append({
-                    "delete_path": dl_exts[ext],
-                    "keep_path": novel_exts[ext],
-                    "delete_name": Path(dl_exts[ext]).name,
-                    "keep_name": Path(novel_exts[ext]).name,
-                    "delete_loc": "다운로드",
-                    "keep_loc": "archive",
-                    "reason": "완전 동일",
-                })
+        for nov in novel_files:
+            if not nov["words"]:
+                continue
+            score = title_score(dl["words"], nov["words"])
+            if score > best_score:
+                best_score = score
+                best_nov = nov
 
-        dl_epub  = ".epub" in dl_exts
-        dl_txt   = ".txt"  in dl_exts
-        nv_epub  = ".epub" in novel_exts
-        nv_txt   = ".txt"  in novel_exts
+        if best_nov is None or best_score < MATCH_THRESHOLD:
+            continue
 
-        if dl_epub and nv_txt and ".epub" not in novel_exts:
+        matched_dl.add(dl["name"])
+
+        dl_is_txt  = dl["ext"]  == ".txt"
+        nov_is_txt = best_nov["ext"] == ".txt"
+        dl_is_epub  = dl["ext"]  == ".epub"
+        nov_is_epub = best_nov["ext"] == ".epub"
+
+        # txt vs epub → epub 삭제
+        if dl_is_epub and nov_is_txt:
             items.append({
-                "delete_path": dl_exts[".epub"],
-                "keep_path": novel_exts[".txt"],
-                "delete_name": Path(dl_exts[".epub"]).name,
-                "keep_name": Path(novel_exts[".txt"]).name,
-                "delete_loc": "다운로드",
-                "keep_loc": "archive",
-                "reason": "txt 우선 (epub 삭제)",
+                "delete_path": dl["path"], "keep_path": best_nov["path"],
+                "delete_name": dl["name"], "keep_name": best_nov["name"],
+                "delete_loc": "다운로드", "keep_loc": "archive",
+                "reason": f"유사도 {best_score:.0%} — txt 우선 (epub 삭제)",
             })
-
-        if dl_txt and nv_epub and ".txt" not in novel_exts:
+        elif dl_is_txt and nov_is_epub:
             items.append({
-                "delete_path": novel_exts[".epub"],
-                "keep_path": dl_exts[".txt"],
-                "delete_name": Path(novel_exts[".epub"]).name,
-                "keep_name": Path(dl_exts[".txt"]).name,
-                "delete_loc": "archive",
-                "keep_loc": "다운로드",
-                "reason": "txt 우선 (epub 삭제)",
+                "delete_path": best_nov["path"], "keep_path": dl["path"],
+                "delete_name": best_nov["name"], "keep_name": dl["name"],
+                "delete_loc": "archive", "keep_loc": "다운로드",
+                "reason": f"유사도 {best_score:.0%} — txt 우선 (epub 삭제)",
+            })
+        else:
+            # 같은 확장자 → 다운로드 복사본 삭제
+            items.append({
+                "delete_path": dl["path"], "keep_path": best_nov["path"],
+                "delete_name": dl["name"], "keep_name": best_nov["name"],
+                "delete_loc": "다운로드", "keep_loc": "archive",
+                "reason": f"유사도 {best_score:.0%}",
             })
 
     return jsonify({"items": items, "total": len(items)})
