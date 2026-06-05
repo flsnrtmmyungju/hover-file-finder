@@ -86,7 +86,6 @@ try:
         if re.search(r"[가-힣]{4,}", s):
             if s not in _spacing_cache:
                 _spacing_cache[s] = _kiwi.space(s)
-                _save_cache()
             spaced = _spacing_cache[s]
             # Kiwi가 재분리한 복합어 다시 결합
             for word in COMPOUND_WORDS:
@@ -413,6 +412,7 @@ def rename_novels():
             except Exception as e:
                 errors.append(f)
 
+    _save_cache()  # Kiwi 캐시 일괄 저장
     print(f"[이름정리] 완료 - 변경 {renamed}개 / 스킵 {skipped}개", flush=True)
     return jsonify({"renamed": renamed, "skipped": skipped, "errors": errors})
 
