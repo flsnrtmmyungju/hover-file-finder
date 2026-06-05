@@ -76,55 +76,51 @@ def _save_cache():
 # Kiwi가 분리하면 안 되는 단어들. 필요 시 자유롭게 추가하세요.
 from compound_words import COMPOUND_WORDS
 
-try:
-    from kiwipiepy import Kiwi as _Kiwi
-    _kiwi = _Kiwi()
+def _apply_rules(s):
+    """Kiwi 없이도 동작하는 공통 후처리 규칙"""
+    # 복합어 재결합
+    for word in COMPOUND_WORDS:
+        if word not in s:
+            for i in range(1, len(word)):
+                pat = re.escape(word[:i]) + r"\s+" + re.escape(word[i:])
+                if re.search(pat, s):
+                    s = re.sub(pat, word, s)
+                    break
+    s = re.sub(r"([A-Za-z0-9가-힣])\s+급(?![가-힣])", r"\1급", s)
+    s = re.sub(r"(?<![가-힣])(\d+)\s+([가-힣])", r"\1\2", s)
+    s = re.sub(r"(\d+회)\s+차(?![가-힣])", r"\1차", s)
+    s = re.sub(r"미\s+완", "미완", s)
+    s = re.sub(r"(?<!\s)미완$", " 미완", s)
+    s = re.sub(r"(?<!\s)(?<!미)완$", " 완", s)
+    return s
 
+# EXE 환경에서는 Kiwi 로딩 생략
+if getattr(sys, 'frozen', False):
     def fix_spacing(text):
-        s = text
+        return _apply_rules(text)
+else:
+    try:
+        from kiwipiepy import Kiwi as _Kiwi
+        _kiwi = _Kiwi()
 
-        # 1. 복합어 재결합 (Kiwi 전, 원본에서 직접 처리)
-        for word in COMPOUND_WORDS:
-            if word not in s:
-                for i in range(1, len(word)):
-                    pat = re.escape(word[:i]) + r"\s+" + re.escape(word[i:])
-                    if re.search(pat, s):
-                        s = re.sub(pat, word, s)
-                        break
+        def fix_spacing(text):
+            s = _apply_rules(text)
+            if re.search(r"[가-힣]{4,}", s):
+                if s not in _spacing_cache:
+                    _spacing_cache[s] = _kiwi.space(s)
+                spaced = _spacing_cache[s]
+                for word in COMPOUND_WORDS:
+                    if word in s and word not in spaced:
+                        for i in range(1, len(word)):
+                            pat = re.escape(word[:i]) + r"\s+" + re.escape(word[i:])
+                            spaced = re.sub(pat, word, spaced)
+                s = spaced
+                s = _apply_rules(s)
+            return s
 
-        # 2. Kiwi 띄어쓰기 교정 (4자 이상 붙은 한글에만 적용, 영구 캐시 사용)
-        if re.search(r"[가-힣]{4,}", s):
-            if s not in _spacing_cache:
-                _spacing_cache[s] = _kiwi.space(s)
-            spaced = _spacing_cache[s]
-            # Kiwi가 재분리한 복합어 다시 결합
-            for word in COMPOUND_WORDS:
-                if word in s and word not in spaced:
-                    for i in range(1, len(word)):
-                        pat = re.escape(word[:i]) + r"\s+" + re.escape(word[i:])
-                        spaced = re.sub(pat, word, spaced)
-            s = spaced
-
-        # 3. X급 패턴
-        s = re.sub(r"([A-Za-z0-9가-힣])\s+급(?![가-힣])", r"\1급", s)
-
-        # 4. 숫자+한글
-        s = re.sub(r"(?<![가-힣])(\d+)\s+([가-힣])", r"\1\2", s)
-
-        # 5. N회차 패턴: "13회 차" → "13회차"
-        s = re.sub(r"(\d+회)\s+차(?![가-힣])", r"\1차", s)
-
-        # 6. "미 완" → "미완" 강제 결합 (Kiwi가 어떻게 나눠도)
-        s = re.sub(r"미\s+완", "미완", s)
-        # 7. 제일 끝 "완"/"미완" 앞 공백 보장 ("미완"의 완은 제외)
-        s = re.sub(r"(?<!\s)미완$", " 미완", s)
-        s = re.sub(r"(?<!\s)(?<!미)완$", " 완", s)
-
-        return s
-
-except Exception:
-    def fix_spacing(text):
-        return text
+    except Exception:
+        def fix_spacing(text):
+            return _apply_rules(text)
 
 
 EXT_STOPWORDS = {"txt", "pdf", "doc", "docx", "zip", "rar", "alz", "hwp",
