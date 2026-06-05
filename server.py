@@ -232,7 +232,8 @@ def clean_name(stem, skip_spacing=False):
     # 한글 1~2자만 남은 빈 괄호 정리
     s = re.sub(r"[\(\[]\s*[가-힣]{0,3}\s*[\)\]]", "", s)
     s = re.sub(r" +", " ", s).strip()
-    # 제일 끝 "완"이 붙어있으면 공백 추가
+    # 제일 끝 "완"/"미완"이 붙어있으면 공백 추가
+    s = re.sub(r"(?<!\s)미완$", " 미완", s)
     s = re.sub(r"(?<!\s)완$", " 완", s)
     return s
 
@@ -415,7 +416,7 @@ def rename_novels():
             except Exception as e:
                 errors.append(f)
 
-            if processed % 200 == 0:
+            if processed % 50 == 0:
                 print(f"[이름정리] 진행 중... ({processed}/{total}) 변경 {renamed}개", flush=True)
 
     _save_cache()  # Kiwi 캐시 일괄 저장
