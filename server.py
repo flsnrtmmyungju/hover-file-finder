@@ -223,8 +223,6 @@ def search():
         w for w in re.findall(r"[가-힣a-z]+", query_clean.lower())
         if len(w) >= min_word_len and w not in EXT_STOPWORDS
     }
-    print(f"[SEARCH] query={repr(query)} | clean={repr(query_clean)} | words={query_words}", flush=True)
-    print(f"[BYTES] {query_clean.encode('utf-8')}", flush=True)
     if not query_words:
         return jsonify({"no_search": True})
 
@@ -573,12 +571,6 @@ def organize():
 
 
 
-@app.route("/debug-log")
-def debug_log():
-    step = request.args.get("step", "")
-    msg  = request.args.get("msg", "")
-    print(f"[DEBUG] step={step} msg={msg}", flush=True)
-    return jsonify({"ok": True})
 
 @app.route("/status")
 def status():

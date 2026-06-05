@@ -492,8 +492,6 @@
       const res = await fetch(`${SERVER}?text=${encodeURIComponent(text)}`);
       if (!res.ok) return;
       const data = await res.json();
-      const dataStr = JSON.stringify(data).slice(0, 80);
-      fetch(`http://localhost:7823/debug-log?step=got&msg=${encodeURIComponent(dataStr)}`).catch(()=>{});
       if (!data || data.no_search) return;
       show(data.exact || [], data.partial || []);
     } catch {
