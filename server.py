@@ -12,6 +12,12 @@ except ImportError:
     print("pip install flask flask-cors")
     sys.exit(1)
 
+try:
+    from send2trash import send2trash
+except ImportError:
+    print("pip install send2trash")
+    sys.exit(1)
+
 app = Flask(__name__)
 
 # PyInstaller 번들 경로를 sys.path에 추가
@@ -355,7 +361,7 @@ def delete_file():
         return jsonify({"error": "파일을 찾을 수 없음"}), 404
 
     try:
-        os.remove(target)
+        send2trash(target)
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -599,7 +605,7 @@ def delete_path():
         return jsonify({"error": "파일 없음"}), 404
 
     try:
-        os.remove(real)
+        send2trash(real)
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -640,7 +646,7 @@ def deduplicate():
         nonlocal deleted
         try:
             if os.path.exists(path):
-                os.remove(path)
+                send2trash(path)
                 deleted += 1
         except Exception as e:
             errors.append(str(e))
