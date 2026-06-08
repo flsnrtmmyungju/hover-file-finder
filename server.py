@@ -2,6 +2,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -12,11 +13,13 @@ except ImportError:
     print("pip install flask flask-cors")
     sys.exit(1)
 
-try:
-    from send2trash import send2trash
-except ImportError:
-    print("pip install send2trash")
-    sys.exit(1)
+def send2trash(path):
+    result = subprocess.run(["wslpath", "-w", path], capture_output=True, text=True)
+    win_path = result.stdout.strip().replace("'", "''")
+    subprocess.run([
+        "powershell.exe", "-Command",
+        f"(New-Object -ComObject Shell.Application).Namespace(0).ParseName('{win_path}').InvokeVerb('delete')"
+    ], check=True)
 
 app = Flask(__name__)
 
