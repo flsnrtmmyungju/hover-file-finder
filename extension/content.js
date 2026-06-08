@@ -231,8 +231,18 @@
       marginBottom: "8px",
     });
     wrap.appendChild(makeActionBtn(
-      "이름정리", "#89dceb",
+      "이름정리(전체)", "#89dceb",
       "http://localhost:7823/rename",
+      (d) => d.error ? "오류" : `✓ ${d.renamed}개 이름변경`
+    ));
+    wrap.appendChild(makeActionBtn(
+      "이름정리(다운)", "#89dceb",
+      "http://localhost:7823/rename/downloads",
+      (d) => d.error ? "오류" : `✓ ${d.renamed}개 이름변경`
+    ));
+    wrap.appendChild(makeActionBtn(
+      "이름정리(소설)", "#89dceb",
+      "http://localhost:7823/rename/archive",
       (d) => d.error ? "오류" : `✓ ${d.renamed}개 이름변경`
     ));
     wrap.appendChild(makeActionBtn(

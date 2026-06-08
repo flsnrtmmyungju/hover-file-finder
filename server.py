@@ -405,43 +405,62 @@ def rename_file():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+def _do_rename(target_dir, label, recursive=True):
+    renamed, skipped, errors = 0, 0, []
+    if recursive:
+        all_files = [(root, f) for root, _, files in os.walk(target_dir) for f in files]
+    else:
+        all_files = [(target_dir, f) for f in os.listdir(target_dir)
+                     if os.path.isfile(os.path.join(target_dir, f))]
+    total = len(all_files)
+    print(f"[이름정리/{label}] 시작 - 총 {total}개 파일", flush=True)
+    for processed, (root, f) in enumerate(all_files, 1):
+        src = os.path.join(root, f)
+        p = Path(f)
+        new_stem = clean_name(p.stem)
+        new_name = new_stem + p.suffix
+        if new_name == f:
+            skipped += 1
+            continue
+        dst = os.path.join(root, new_name)
+        if os.path.exists(dst):
+            skipped += 1
+            continue
+        try:
+            os.rename(src, dst)
+            renamed += 1
+            print(f"[이름정리/{label}] ({processed}/{total}) {f!r} → {new_name!r}", flush=True)
+        except Exception as e:
+            errors.append(f)
+        if processed % 50 == 0:
+            print(f"[이름정리/{label}] 진행 중... ({processed}/{total}) 변경 {renamed}개", flush=True)
+    _save_cache()
+    print(f"[이름정리/{label}] 완료 - 변경 {renamed}개 / 스킵 {skipped}개", flush=True)
+    return jsonify({"renamed": renamed, "skipped": skipped, "errors": errors})
+
+
 @app.route("/rename", methods=["GET", "POST"])
 def rename_novels():
     config = load_config()
     downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
+    return _do_rename(downloads_dir, "전체", recursive=True)
 
-    renamed, skipped, errors = 0, 0, []
-    total = sum(len(files) for _, _, files in os.walk(downloads_dir))
-    processed = 0
-    print(f"[이름정리] 시작 - 총 {total}개 파일", flush=True)
 
-    for root, dirs, files in os.walk(downloads_dir):
-        for f in files:
-            processed += 1
-            src = os.path.join(root, f)
-            p = Path(f)
-            new_stem = clean_name(p.stem)
-            new_name = new_stem + p.suffix
-            if new_name == f:
-                skipped += 1
-                continue
-            dst = os.path.join(root, new_name)
-            if os.path.exists(dst):
-                skipped += 1
-                continue
-            try:
-                os.rename(src, dst)
-                renamed += 1
-                print(f"[이름정리] ({processed}/{total}) {f!r} → {new_name!r}", flush=True)
-            except Exception as e:
-                errors.append(f)
+@app.route("/rename/downloads", methods=["GET", "POST"])
+def rename_downloads():
+    config = load_config()
+    downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
+    return _do_rename(downloads_dir, "다운로드", recursive=False)
 
-            if processed % 50 == 0:
-                print(f"[이름정리] 진행 중... ({processed}/{total}) 변경 {renamed}개", flush=True)
 
-    _save_cache()  # Kiwi 캐시 일괄 저장
-    print(f"[이름정리] 완료 - 변경 {renamed}개 / 스킵 {skipped}개", flush=True)
-    return jsonify({"renamed": renamed, "skipped": skipped, "errors": errors})
+@app.route("/rename/archive", methods=["GET", "POST"])
+def rename_archive():
+    config = load_config()
+    downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
+    novel_dir = os.path.join(downloads_dir, config.get("archive_folder", "archive"))
+    if not os.path.isdir(novel_dir):
+        return jsonify({"error": "archive 폴더가 없습니다"}), 404
+    return _do_rename(novel_dir, "소설폴더", recursive=True)
 
 
 
