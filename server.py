@@ -253,6 +253,7 @@ def clean_name(stem, skip_spacing=False):
     s = s.replace("_", " ")
     s = s.replace("~", "-")
     s = re.sub(r"\b0+(\d+)(?=-)", r"\1", s)            # 앞자리 0 제거 (001- → 1-)
+    s = re.sub(r"\b0+(?=-)", "1", s)                   # 0만 있을 경우 1로 (000- → 1-)
     s = re.sub(r"([가-힣])(\d)", r"\1 \2", s)         # 한글+숫자 사이 공백 삽입
     s = re.sub(r" +", " ", s).strip()
     if not skip_spacing:
