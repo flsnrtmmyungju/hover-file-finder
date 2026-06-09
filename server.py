@@ -244,6 +244,7 @@ def clean_name(stem, skip_spacing=False):
     s = re.sub(r"\[[^\]]*\]", "", s)
     s = re.sub(r"\(\s*txt\s*\)", "", s, flags=re.IGNORECASE)
     s = re.sub(r"19N", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"텍본", "", s)
     s = s.replace("#", "")                              # # 삭제
     s = re.sub(r"\s*@\S+$", "", s)   # @용은 등 끝에 붙은 태그 제거
     s = re.sub(r"\s*ⓒ\S*$", "", s)  # ⓒ작가명 제거
