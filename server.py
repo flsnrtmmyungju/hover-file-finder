@@ -255,6 +255,9 @@ def clean_name(stem, skip_spacing=False):
     s = re.sub(r"\b0+(\d+)(?=-)", r"\1", s)            # 앞자리 0 제거 (001- → 1-)
     s = re.sub(r"\b0+(?=-)", "1", s)                   # 0만 있을 경우 1로 (000- → 1-)
     s = re.sub(r"([가-힣])(\d)", r"\1 \2", s)         # 한글+숫자 사이 공백 삽입
+    s = re.sub(r"(\d)완", r"\1 완", s)                         # 숫자완 → 숫자 완
+    s = re.sub(r"(?<![0-9-])(\d{3})(?!\d) 완", r"1-\1 완", s)  # 세자리숫자 완 → 1-세자리숫자 완
+    s = re.sub(r"(?<!\d)-(\d{3})(?!\d) 완", r"1-\1 완", s)    # -세자리숫자 완 → 1-세자리숫자 완
     s = re.sub(r" +", " ", s).strip()
     if not skip_spacing:
         s = fix_spacing(s)
@@ -265,6 +268,7 @@ def clean_name(stem, skip_spacing=False):
     # 한글 1~2자만 남은 빈 괄호 정리
     s = re.sub(r"[\(\[]\s*[가-힣]{0,3}\s*[\)\]]", "", s)
     s = re.sub(r" +", " ", s).strip()
+    s = re.sub(r"(\d)완", r"\1 완", s)                 # fix_spacing 후 숫자완 → 숫자 완 재보정
     # 어디서든 "미 완" → "미완" 최종 보정
     s = re.sub(r"미\s+완", "미완", s)
     # 끝 완/미완 앞 공백 보장 ("미완"의 완은 제외)
