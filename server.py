@@ -460,21 +460,21 @@ def _do_rename(target_dir, label, recursive=True):
             print(f"[이름정리/{label}] 진행 중... ({processed}/{total}) 변경 {renamed}개", flush=True)
     _save_cache()
     print(f"[이름정리/{label}] 완료 - 변경 {renamed}개 / 스킵 {skipped}개", flush=True)
-    return jsonify({"renamed": renamed, "skipped": skipped, "errors": errors})
+    return {"renamed": renamed, "skipped": skipped, "errors": errors}
 
 
 @app.route("/rename", methods=["GET", "POST"])
 def rename_novels():
     config = load_config()
     downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
-    return _do_rename(downloads_dir, "전체", recursive=True)
+    return jsonify(_do_rename(downloads_dir, "전체", recursive=True))
 
 
 @app.route("/rename/downloads", methods=["GET", "POST"])
 def rename_downloads():
     config = load_config()
     downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
-    return _do_rename(downloads_dir, "다운로드", recursive=False)
+    return jsonify(_do_rename(downloads_dir, "다운로드", recursive=False))
 
 
 @app.route("/rename/archive", methods=["GET", "POST"])
@@ -484,7 +484,7 @@ def rename_archive():
     novel_dir = os.path.join(downloads_dir, config.get("archive_folder", "archive"))
     if not os.path.isdir(novel_dir):
         return jsonify({"error": "archive 폴더가 없습니다"}), 404
-    return _do_rename(novel_dir, "소설폴더", recursive=True)
+    return jsonify(_do_rename(novel_dir, "소설폴더", recursive=True))
 
 
 
