@@ -249,6 +249,7 @@ def clean_name(stem, skip_spacing=False):
     s = re.sub(r"\s*ⓒ\S*$", "", s)  # ⓒ작가명 제거
     s = s.replace("+", " ")
     s = s.replace("_", " ")
+    s = s.replace("~", "-")
     s = re.sub(r" +", " ", s).strip()
     if not skip_spacing:
         s = fix_spacing(s)
