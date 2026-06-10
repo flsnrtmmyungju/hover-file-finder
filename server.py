@@ -142,6 +142,8 @@ else:
             return _apply_rules(text)
 
 
+
+
 EXT_STOPWORDS = {"txt", "pdf", "doc", "docx", "zip", "rar", "alz", "hwp",
                  "xlsx", "pptx", "mp3", "mp4", "jpg", "png", "gif", "exe",
                  "mb", "kb", "gb", "tb", "pb"}
