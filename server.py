@@ -204,6 +204,8 @@ HANJA_C         = "完"        # 完
 def clean_name(stem, skip_spacing=False):
     # 특수 공백 문자 → 일반 공백
     s = stem.replace('\xa0', ' ').replace('​', '').replace('　', ' ')
+    # 끝 날짜태그 제거 (예: -현판TS260322, -로 260321, -현ts260306)
+    s = re.sub(r'[-]\s*[가-힣]{1,3}[a-zA-Z]{0,2}\s?\d{6}\s*$', '', s)
 
     # 1단계: 한자 -> 한글 (괄호 없는 단순 치환)
     s = s.replace(HANJA_COMPLETE,  "완")
@@ -743,6 +745,14 @@ def status():
         "downloads_dir_resolved": resolved,
         "dir_exists": exists,
     })
+
+
+@app.route("/clean-name")
+def clean_name_api():
+    raw = request.args.get("name", "")
+    stem = re.sub(r'\.[^.]+$', '', raw).strip()
+    result = clean_name(stem)
+    return jsonify({"original": raw, "cleaned": result})
 
 
 if __name__ == "__main__":
