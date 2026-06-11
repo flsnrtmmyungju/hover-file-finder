@@ -3,3 +3,4 @@ __pycache__/
 spacing_cache.json
 .claude/
 config.json
+test/
