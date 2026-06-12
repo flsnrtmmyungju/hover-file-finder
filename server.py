@@ -17,8 +17,9 @@ def send2trash(path):
     result = subprocess.run(["wslpath", "-w", path], capture_output=True, text=True)
     win_path = result.stdout.strip().replace("'", "''")
     subprocess.run([
-        "powershell.exe", "-Command",
-        f"(New-Object -ComObject Shell.Application).Namespace(0).ParseName('{win_path}').InvokeVerb('delete')"
+        "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+        f"Add-Type -AssemblyName Microsoft.VisualBasic; "
+        f"[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('{win_path}', 'OnlyErrorDialogs', 'SendToRecycleBin')"
     ], check=True)
 
 app = Flask(__name__)
@@ -106,6 +107,7 @@ def _apply_rules(s):
                     s = re.sub(pat, word, s)
                     break
     s = re.sub(r"([A-Za-z0-9가-힣])\s+급(?![가-힣])", r"\1급", s)
+    s = re.sub(r"(\S)\s+%", r"\1%", s)
     s = re.sub(r"(?<![가-힣])(\d+)\s+([가-힣])", r"\1\2", s)
     s = re.sub(r"(\d+회)\s+차(?![가-힣])", r"\1차", s)
     s = re.sub(r"미\s+완", "미완", s)
@@ -198,7 +200,9 @@ HANJA_UNFINISH  = "未完"  # 未完
 HANJA_UNFINISH1 = "未"        # 未
 HANJA_SIDE      = "外傳"  # 外傳
 HANJA_SIDE2     = "外전"  # 外전 (한자+한글)
+HANJA_SIDE3     = "外"        # 外 단독
 HANJA_C         = "完"        # 完
+HANJA_AFTER     = "後"        # 後 (후기/에필)
 
 
 def clean_name(stem, skip_spacing=False):
@@ -206,25 +210,7 @@ def clean_name(stem, skip_spacing=False):
     s = stem.replace('\xa0', ' ').replace('​', '').replace('　', ' ')
     # 끝 날짜태그 제거 (예: -현판TS260322, -로 260321, -현ts260306)
     s = re.sub(r'[-]\s*[가-힣]{1,3}[a-zA-Z]{0,2}\s?\d{6}\s*$', '', s)
-
-    # 1단계: 한자 -> 한글 (괄호 없는 단순 치환)
-    s = s.replace(HANJA_COMPLETE,  "완")
-    s = s.replace(HANJA_UNFINISH,  "미완")
-    s = s.replace(HANJA_SIDE,      "외")
-    s = s.replace(HANJA_SIDE2,     "외")
-    s = s.replace(HANJA_C,         "완")
-    s = s.replace(HANJA_UNFINISH1, "미완")
-    # 나머지 한자 전부 삭제
-    s = re.sub(r"[㐀-鿿豈-﫿]+", "", s)
-    # 연재중 → 미완 (괄호 포함, 한자 삭제 후)
-    s = re.sub(r"[\[\(]\s*연재\s*중\s*[\]\)]", " 미완 ", s)
-    s = re.sub(r"연재\s*중", " 미완 ", s)
-    s = re.sub(r"연재(?!\S)", " 미완 ", s)
-    s = re.sub(r"(?<![가-힣])외전(?![가-힣])", " 외 ", s)
-    s = re.sub(r"(?<![가-힣])후기(?![가-힣])", " 후 ", s)
-    s = re.sub(r"(?<![가-힣])포함(?![가-힣])", " ", s)
-
-    # 2단계: 파일명 앞 [텍스트] 처리
+    # 2단계: 파일명 앞 [텍스트] 처리 (괄호 제거 전에 먼저)
     m = re.match(r"^\s*\[(완결|완)\]\s*(?:완결|완)?\s*", s)
     if m:
         rest = s[m.end():].strip()
@@ -232,10 +218,45 @@ def clean_name(stem, skip_spacing=False):
     else:
         s = re.sub(r"^\s*\[[^\]]*\]\s*", "", s)
 
-    # 3단계: 인라인 괄호 처리
-    s = re.sub(r"[\(\[]\s*완결\s*[\)\]]", "완", s)
-    s = re.sub(r"[\(\[]\s*완\s*[\)\]]",   "완", s)
-    s = re.sub(r"[\(\[]\s*미완\s*[\)\]]", "미완", s)
+    # 3단계: 인라인 괄호 처리 (괄호 제거 전에 먼저) — 한글/한자 마커 모두
+    s = re.sub(r"[\(\[]\s*완결\s*[\)\]]", " 완 ", s)
+    s = re.sub(r"[\(\[]\s*완\s*[\)\]]",   " 완 ", s)
+    s = re.sub(r"[\(\[]\s*미완\s*[\)\]]", " 미완 ", s)
+    # 한자 마커 괄호 → 한글 (독음 삭제 전에 먼저 변환)
+    s = re.sub(r"[\(\[]\s*完結\s*[\)\]]", " 완 ", s)
+    s = re.sub(r"[\(\[]\s*完\s*[\)\]]",   " 완 ", s)
+    s = re.sub(r"[\(\[]\s*未完\s*[\)\]]", " 미완 ", s)
+    s = re.sub(r"[\(\[]\s*未\s*[\)\]]",   " 미완 ", s)
+    s = re.sub(r"[\(\[]\s*外傳\s*[\)\]]", " 외 ", s)
+    s = re.sub(r"[\(\[]\s*外\s*[\)\]]",   " 외 ", s)
+    s = re.sub(r"[\(\[]\s*後\s*[\)\]]",   " 후 ", s)
+
+    # 한자 독음 괄호 제거 (天災) [天災] — 붙어있는 글자 분리 없이
+    _HANJA = "[\u3400-\u9fff\uf900-\ufaff]"
+    s = re.sub(r"\(" + _HANJA + r"+\)", "", s)
+    s = re.sub(r"\[" + _HANJA + r"+\]", "", s)
+    # 괄호 문자 제거 {}()[] (내용은 유지, 앞뒤 붙어있으면 공백 분리)
+    s = re.sub(r"([^\s])([([{])", r"\1 ", s)
+    s = re.sub(r"([)\]}])([^\s])", r" \2", s)
+    s = re.sub(r"[{}()\[\]]", "", s)
+
+    # 1단계: 한자 -> 한글 (괄호 없는 단순 치환)
+    s = s.replace(HANJA_COMPLETE,  "완")
+    s = s.replace(HANJA_UNFINISH,  "미완")
+    s = s.replace(HANJA_SIDE,      "외")
+    s = s.replace(HANJA_SIDE2,     "외")
+    s = s.replace(HANJA_SIDE3,     "외")
+    s = s.replace(HANJA_C,         "완")
+    s = s.replace(HANJA_UNFINISH1, "미완")
+    s = s.replace(HANJA_AFTER,     "후")
+    # 나머지 한자 전부 삭제
+    s = re.sub(r"[\u3400-\u9fff\uf900-\ufaff]+", "", s)
+    # 연재중 → 미완
+    s = re.sub(r"연재\s*중", " 미완 ", s)
+    s = re.sub(r"연재(?!\S)", " 미완 ", s)
+    s = re.sub(r"(?<![가-힣])외전(?![가-힣])", " 외 ", s)
+    s = re.sub(r"(?<![가-힣])후기(?![가-힣])", " 후 ", s)
+    s = re.sub(r"(?<![가-힣])포함(?![가-힣])", " ", s)
     s = s.replace("완결", "완")
 
     # 4단계: 기타 정리
@@ -251,10 +272,10 @@ def clean_name(stem, skip_spacing=False):
     s = re.sub(r"19N", "", s, flags=re.IGNORECASE)
     s = re.sub(r"텍본", "", s)
     s = s.replace("#", "")                              # # 삭제
-    s = re.sub(r"\s*@\S+$", "", s)   # @용은 등 끝에 붙은 태그 제거
-    s = re.sub(r"\s*ⓒ\S*$", "", s)  # ⓒ작가명 제거
+    s = re.sub(r"\s*ⓒ\S+(?:\s+\S+)*?(?=\s+\d|\s*$)", "", s)  # ⓒ작가명(다중단어) 제거
     s = s.replace("+", " ")
     s = s.replace("_", " ")
+    s = re.sub(r"\s*@\S+", "", s)   # @작가명 제거 (어느 위치든)
     s = s.replace("~", "-")
     s = re.sub(r"\b0+(\d+)(?=-)", r"\1", s)            # 앞자리 0 제거 (001- → 1-)
     s = re.sub(r"\b0+(?=-)", "1", s)                   # 0만 있을 경우 1로 (000- → 1-)
@@ -283,6 +304,70 @@ def clean_name(stem, skip_spacing=False):
     # 끝 완/미완 앞 공백 보장 ("미완"의 완은 제외)
     s = re.sub(r"(?<!\s)미완$", " 미완", s)
     s = re.sub(r"(?<!\s)(?<!미)완$", " 완", s)
+    # 범위(1-N) 이후: 완/미완/외/에필/후만 허용, 나머지 제거, 순서 정렬
+    _MARKER_MAP = {
+        '완': ('완', 0), '미완': ('미완', 0),
+        '외': ('외', 1), '외전': ('외', 1), '번외': ('외', 1),
+        '에필': ('에필', 2), '에필로그': ('에필', 2),
+        '후': ('후', 3), '후기': ('후', 3),
+    }
+    m_range = re.search(r"(\d+-\d+권?)(.*?)$", s)
+    if m_range:
+        pre = s[:m_range.end(1)]
+        tokens = re.split(r'[\s,]+', m_range.group(2).strip())
+        _sorted_keys = sorted(_MARKER_MAP.keys(), key=len, reverse=True)
+        seen = {}      # canonical → order
+        seen_disp = {} # canonical → display string (외전은 회차 포함)
+        i = 0
+        while i < len(tokens):
+            tok = tokens[i]
+            remaining = tok.lower().strip(',')
+            while remaining:
+                matched = False
+                for key in _sorted_keys:
+                    if remaining.startswith(key):
+                        canonical, order = _MARKER_MAP[key]
+                        if canonical not in seen:
+                            seen[canonical] = order
+                            # 외전 계열이면 다음 토큰이 범위인지 확인
+                            if canonical == '외' and i + 1 < len(tokens):
+                                nxt = tokens[i + 1].strip(',')
+                                if re.match(r'^\d+[-~]\d+$|^\d+$', nxt):
+                                    seen_disp[canonical] = f'외 {nxt}'
+                                    i += 1
+                                else:
+                                    seen_disp[canonical] = '외'
+                            else:
+                                seen_disp[canonical] = canonical
+                        remaining = remaining[len(key):].strip(',')
+                        matched = True
+                        break
+                if not matched:
+                    # N부 패턴 (1부, 2부 등) 보존
+                    if re.match(r'^\d+부$', remaining):
+                        if '부' not in seen:
+                            seen['부'] = -1  # 완 앞에 오도록
+                            seen_disp['부'] = remaining
+                    break
+            i += 1
+        markers = [seen_disp[m] for m, _ in sorted(seen.items(), key=lambda x: x[1])]
+        s = (pre + (" " + " ".join(markers) if markers else "")).strip()
+    else:
+        # 범위 없는 경우: 완/미완 뒤 접미사만 보존
+        _KNOWN_SFX = {'외전', '번외', '에필로그', '에필', '후기', '외', '후'}
+        m_end = re.search(r"(완|미완)((?:\s+\S+)*)$", s)
+        if m_end:
+            pre = s[:m_end.start()]
+            marker = m_end.group(1)
+            words = m_end.group(2).split()
+            kept = []
+            for w in words:
+                w_clean = w.strip(',')
+                if w_clean in _KNOWN_SFX:
+                    kept.append(w_clean)
+                else:
+                    break
+            s = (pre + marker + (" " + " ".join(kept) if kept else "")).strip()
     return s
 
 
@@ -425,7 +510,14 @@ def rename_file():
 
     dst = os.path.join(os.path.dirname(target), new_name)
     if os.path.exists(dst):
-        return jsonify({"error": "같은 이름 파일 존재"}), 409
+        dup_dir = os.path.join(downloads_dir, "중복")
+        os.makedirs(dup_dir, exist_ok=True)
+        dup_dst = os.path.join(dup_dir, os.path.basename(target))
+        try:
+            shutil.move(target, dup_dst)
+            return jsonify({"ok": True, "moved_to_dup": True, "new_name": os.path.basename(dup_dst)})
+        except Exception as e:
+            return jsonify({"error": f"중복 이동 실패: {e}"}), 500
 
     try:
         os.rename(target, dst)
@@ -745,6 +837,217 @@ def status():
         "downloads_dir_resolved": resolved,
         "dir_exists": exists,
     })
+
+
+@app.route("/extract", methods=["POST"])
+def extract_file():
+    import zipfile, unicodedata
+    config = load_config()
+    downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
+    filename = request.args.get("filename", "").strip()
+    if not filename:
+        return jsonify({"error": "파일명 없음"}), 400
+
+    fn_nfc = unicodedata.normalize("NFC", filename)
+    target = None
+    for root, dirs, files in os.walk(downloads_dir):
+        for f in files:
+            if unicodedata.normalize("NFC", f) == fn_nfc:
+                target = os.path.join(root, f)
+                break
+        if target:
+            break
+
+    if not target:
+        return jsonify({"error": f"파일 없음: {filename}"}), 404
+
+    stem = os.path.splitext(filename)[0]
+    base_dir = os.path.dirname(target)
+
+    try:
+        import shutil
+        members = []
+        with zipfile.ZipFile(target, 'r') as zf:
+            for info in zf.infolist():
+                try:
+                    name = info.filename.encode('cp437').decode('cp949')
+                except Exception:
+                    name = info.filename
+                members.append(name)
+
+            if len(members) == 1:
+                cleaned_stem = clean_name(stem)
+                extract_dir  = os.path.join(base_dir, cleaned_stem)
+                os.makedirs(extract_dir, exist_ok=True)
+            else:
+                extract_dir = os.path.join(base_dir, stem)
+                os.makedirs(extract_dir, exist_ok=True)
+
+            for info in zf.infolist():
+                try:
+                    info.filename = info.filename.encode('cp437').decode('cp949')
+                except Exception:
+                    pass
+                zf.extract(info, extract_dir)
+        # with 블록 종료 → zip 파일 닫힘
+
+        # 1개짜리: 원본이름 + 필터링된 압축파일명 복사본 + zip 이동
+        if len(members) == 1:
+            inner_name    = members[0]
+            inner_ext     = os.path.splitext(inner_name)[1]
+            original_path = os.path.join(extract_dir, inner_name)
+            renamed_name  = cleaned_stem + inner_ext
+            renamed_path  = os.path.join(extract_dir, renamed_name)
+            if original_path != renamed_path and os.path.exists(original_path):
+                shutil.copy2(original_path, renamed_path)
+            zip_dst = os.path.join(extract_dir, filename)
+            if target != zip_dst:
+                shutil.move(target, zip_dst)
+            return jsonify({"ok": True, "extracted": 1, "dir": extract_dir,
+                            "original": inner_name, "renamed": renamed_name})
+
+        return jsonify({"ok": True, "extracted": len(members), "dir": extract_dir})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/extract-all", methods=["POST"])
+def extract_all():
+    import zipfile, unicodedata
+    config = load_config()
+    downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
+
+    zips = [
+        os.path.join(downloads_dir, f)
+        for f in os.listdir(downloads_dir)
+        if f.lower().endswith(".zip") and os.path.isfile(os.path.join(downloads_dir, f))
+    ]
+
+    def clean_stem(s):
+        has_complete = bool(re.search(r'[(\[（【]?완결[)\]）】]?', s))
+        s = re.sub(r'\s*[(\[（【]완결[)\]）】]\s*', ' ', s)
+        s = re.sub(r'\s+완결\s*$', '', s)
+        s = re.sub(r'\s+', ' ', s).strip()
+        if has_complete and not re.search(r'\s완$', s):
+            s = s + ' 완'
+        return s
+
+    def num_key(pair):
+        nm = pair[1].lower()
+        nums = [int(n) for n in re.findall(r'\d+', nm)]
+        n = nums[0] if nums else 0
+        if '후기' in nm: return (4, n)
+        if any(k in nm for k in ('에필로그', '에필')): return (3, n)
+        if any(k in nm for k in ('외전', '번외')): return (2, n)
+        if any(k in nm for k in ('프롤로그', '서장')): return (0, n)
+        return (1, n)
+
+    def first_num(nm):
+        m = re.search(r'\d+', nm)
+        return int(m.group()) if m else None
+
+    def range_suffix(sorted_files):
+        main = [(info, nm) for info, nm in sorted_files if num_key((info, nm))[0] == 1]
+        has_외전 = any(num_key(p)[0] == 2 for p in sorted_files)
+        has_에필 = any(num_key(p)[0] == 3 for p in sorted_files)
+        has_후기 = any(num_key(p)[0] == 4 for p in sorted_files)
+        has_완 = any(any(k in p[1].lower() for k in ('완결', '완', '끝')) for p in sorted_files)
+
+        base = main if main else sorted_files
+        n0 = first_num(base[0][1])
+        n1 = first_num(base[-1][1])
+
+        if n0 is not None and n0 == 0:
+            n0 = 1
+
+        suffix = ""
+        if n0 is not None:
+            suffix += f" {n0}-{n1}" if (n1 is not None and n1 != n0) else f" {n0}"
+        if has_완:
+            suffix += " 완"
+        if has_외전:
+            suffix += " 외"
+        if has_에필:
+            suffix += " 에필"
+        if has_후기:
+            suffix += " 후"
+        return suffix
+
+    done, errors = [], []
+    for zip_path in zips:
+        zip_name = os.path.basename(zip_path)
+        stem = clean_stem(os.path.splitext(zip_name)[0])
+        base_dir = os.path.dirname(zip_path)
+        out_folder = os.path.join(base_dir, stem)
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                members = []
+                for info in zf.infolist():
+                    try:
+                        name = info.filename.encode('cp437').decode('cp949')
+                    except Exception:
+                        name = info.filename
+                    members.append((info, name))
+
+                files_only = [(info, nm) for info, nm in members if not nm.endswith('/')]
+                os.makedirs(out_folder, exist_ok=True)
+
+                if len(files_only) == 1:
+                    info, member_name = files_only[0]
+                    member_ext = os.path.splitext(member_name)[1]
+                    new_filename = stem + member_ext
+                    info.filename = member_name
+                    zf.extract(info, out_folder)
+                    extracted = os.path.join(out_folder, member_name)
+                    dst_path = os.path.join(out_folder, new_filename)
+                    if extracted != dst_path and os.path.exists(extracted):
+                        shutil.copy2(extracted, dst_path)
+                    done.append(new_filename)
+                else:
+                    txt_files = [(info, nm) for info, nm in files_only if nm.lower().endswith('.txt')]
+                    if txt_files:
+                        txt_files.sort(key=num_key)
+                        parts = []
+                        for info, nm in txt_files:
+                            raw = zf.read(info)
+                            for enc in ('utf-8-sig', 'cp949', 'utf-8'):
+                                try:
+                                    content = raw.decode(enc)
+                                    break
+                                except Exception:
+                                    continue
+                            else:
+                                content = raw.decode('cp949', errors='replace')
+                            header = os.path.splitext(nm)[0]
+                            parts.append(f"{header}\n{content}")
+                        merged = "\n".join(parts)
+                        out_name = stem + range_suffix(txt_files) + ".txt"
+                        with open(os.path.join(out_folder, out_name), 'w', encoding='utf-8') as f:
+                            f.write(merged)
+
+                        all_names = [nm for _, nm in files_only]
+                        merged_names = [nm for _, nm in txt_files]
+                        log_lines = ["[원본 파일 목록]"]
+                        log_lines += [f"  {nm}" for nm in all_names]
+                        log_lines += ["", "[합친 순서]"]
+                        log_lines += [f"  {i+1}. {os.path.splitext(nm)[0]}" for i, nm in enumerate(merged_names)]
+                        log_lines += ["", f"→ {out_name} 으로 저장"]
+                        log_text = "\n".join(log_lines)
+                        with open(os.path.join(out_folder, "_합치기_정보.txt"), 'w', encoding='utf-8') as f:
+                            f.write(log_text)
+
+                        done.append(out_name)
+                    else:
+                        for info, nm in files_only:
+                            info.filename = nm
+                            zf.extract(info, out_folder)
+                        done.append(stem + "/")
+
+            shutil.move(zip_path, os.path.join(out_folder, zip_name))
+        except Exception as e:
+            errors.append({"file": zip_name, "error": str(e)})
+
+    return jsonify({"ok": True, "done": done, "errors": errors})
 
 
 @app.route("/clean-name")
