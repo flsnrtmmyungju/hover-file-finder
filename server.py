@@ -115,6 +115,12 @@ def _get_file_list(downloads_dir):
 def _invalidate_file_cache():
     _file_cache["ts"] = 0.0
 
+def _warm_file_cache(downloads_dir):
+    import threading
+    def _warm():
+        _get_file_list(downloads_dir)
+    threading.Thread(target=_warm, daemon=True).start()
+
 # ── 띄어쓰기 예외 복합어 목록 ─────────────────────────────────────
 # Kiwi가 분리하면 안 되는 단어들. 필요 시 자유롭게 추가하세요.
 from compound_words import COMPOUND_WORDS
@@ -575,7 +581,9 @@ def _do_rename(target_dir, label, recursive=True):
     _invalidate_file_cache()
     _save_cache()
     print(f"[이름정리/{label}] 완료 - 변경 {renamed}개 / 스킵 {skipped}개", flush=True)
-    return {"renamed": renamed, "skipped": skipped, "errors": errors}
+    result = {"renamed": renamed, "skipped": skipped, "errors": errors}
+    _warm_file_cache(target_dir)
+    return result
 
 
 @app.route("/rename", methods=["GET", "POST"])
@@ -841,6 +849,7 @@ def organize():
 
     if moved:
         _invalidate_file_cache()
+        _warm_file_cache(downloads_dir)
     return jsonify({"moved": moved, "skipped": skipped, "errors": errors})
 
 
@@ -1088,4 +1097,5 @@ if __name__ == "__main__":
     print(f"다운로드 폴더: {resolved}")
     if not os.path.isdir(resolved):
         print("경고: 폴더가 존재하지 않습니다.")
+    _warm_file_cache(resolved)
     app.run(port=port, debug=False)
