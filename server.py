@@ -93,7 +93,7 @@ def _save_cache():
         pass
 
 # ── 파일 목록 캐시 ───────────────────────────────────────────────
-_file_cache = {"ts": 0.0, "dir": "", "files": [], "paths": {}}
+_file_cache = {"ts": 0.0, "dir": "", "files": [], "paths": {}, "clean_stems": {}}
 _FILE_CACHE_TTL = 60  # seconds
 
 def _get_file_list(downloads_dir):
@@ -109,7 +109,7 @@ def _get_file_list(downloads_dir):
                     paths[f] = os.path.join(root, f)
     except (FileNotFoundError, PermissionError):
         pass
-    _file_cache.update({"ts": now, "dir": downloads_dir, "files": files, "paths": paths})
+    _file_cache.update({"ts": now, "dir": downloads_dir, "files": files, "paths": paths, "clean_stems": {}})
     return files, paths
 
 def _invalidate_file_cache():
@@ -118,7 +118,15 @@ def _invalidate_file_cache():
 def _warm_file_cache(downloads_dir):
     import threading
     def _warm():
-        _get_file_list(downloads_dir)
+        files, _ = _get_file_list(downloads_dir)
+        clean_stems = {}
+        for f in files:
+            try:
+                clean_stems[f] = clean_name(Path(f).stem)
+            except Exception:
+                clean_stems[f] = Path(f).stem
+        _file_cache["clean_stems"] = clean_stems
+        _save_cache()
     threading.Thread(target=_warm, daemon=True).start()
 
 # ── 띄어쓰기 예외 복합어 목록 ─────────────────────────────────────
@@ -438,17 +446,32 @@ def search():
 
     exact = []
     partial = []
+    clean_stems = _file_cache.get("clean_stems", {})
 
     for f in all_files:
+        # 원본 파일명으로 매칭
         score = score_filename(query_words, f)
+
+        # clean_name 버전으로도 매칭 (워밍 완료 시)
+        cstem = clean_stems.get(f, "")
+        if cstem:
+            score2 = score_filename(query_words, cstem + Path(f).suffix)
+            score = max(score, score2)
+
         if score <= 0:
             continue
-        name_no_ext = join_single_syllables(Path(f).stem.lower())
-        file_words = {
-            w for w in re.findall(r"[가-힣a-z]+", name_no_ext)
+
+        # exact 판정: 원본 단어 OR clean 단어 중 하나라도 쿼리 단어 포함
+        raw_words = {
+            w for w in re.findall(r"[가-힣a-z]+", join_single_syllables(Path(f).stem.lower()))
             if len(w) >= 2 and w not in EXT_STOPWORDS
         }
-        is_exact = bool(query_words) and query_words <= file_words
+        clean_words = {
+            w for w in re.findall(r"[가-힣a-z]+", join_single_syllables(cstem.lower()))
+            if len(w) >= 2 and w not in EXT_STOPWORDS
+        } if cstem else set()
+
+        is_exact = bool(query_words) and query_words <= (raw_words | clean_words)
         if is_exact:
             exact.append((score, f))
         else:
