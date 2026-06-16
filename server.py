@@ -92,6 +92,29 @@ def _save_cache():
     except Exception:
         pass
 
+# ── 파일 목록 캐시 ───────────────────────────────────────────────
+_file_cache = {"ts": 0.0, "dir": "", "files": [], "paths": {}}
+_FILE_CACHE_TTL = 60  # seconds
+
+def _get_file_list(downloads_dir):
+    now = _time.time()
+    if now - _file_cache["ts"] < _FILE_CACHE_TTL and _file_cache["dir"] == downloads_dir:
+        return _file_cache["files"], _file_cache["paths"]
+    files, paths = [], {}
+    try:
+        for root, _, fnames in os.walk(downloads_dir):
+            for f in fnames:
+                files.append(f)
+                if f not in paths:
+                    paths[f] = os.path.join(root, f)
+    except (FileNotFoundError, PermissionError):
+        pass
+    _file_cache.update({"ts": now, "dir": downloads_dir, "files": files, "paths": paths})
+    return files, paths
+
+def _invalidate_file_cache():
+    _file_cache["ts"] = 0.0
+
 # ── 띄어쓰기 예외 복합어 목록 ─────────────────────────────────────
 # Kiwi가 분리하면 안 되는 단어들. 필요 시 자유롭게 추가하세요.
 from compound_words import COMPOUND_WORDS
@@ -393,19 +416,9 @@ def search():
     if not query or len(query) < 2:
         return jsonify({"exact": [], "partial": []})
 
-    # os.walk 한 번에 all_files + file_paths 동시 수집
-    all_files = []
-    file_paths = {}
-    try:
-        for root, dirs, files in os.walk(downloads_dir):
-            for f in files:
-                all_files.append(f)
-                if f not in file_paths:
-                    file_paths[f] = os.path.join(root, f)
-    except FileNotFoundError:
+    all_files, file_paths = _get_file_list(downloads_dir)
+    if not all_files and not os.path.isdir(downloads_dir):
         return jsonify({"error": f"폴더를 찾을 수 없음: {downloads_dir}"}), 500
-    except PermissionError:
-        return jsonify({"error": "폴더 접근 권한 없음"}), 500
 
     query_clean = re.sub(r"\.\w+$", "", query.strip())
     query_clean = clean_name(query_clean)
@@ -559,6 +572,7 @@ def _do_rename(target_dir, label, recursive=True):
             errors.append(f)
         if processed % 50 == 0:
             print(f"[이름정리/{label}] 진행 중... ({processed}/{total}) 변경 {renamed}개", flush=True)
+    _invalidate_file_cache()
     _save_cache()
     print(f"[이름정리/{label}] 완료 - 변경 {renamed}개 / 스킵 {skipped}개", flush=True)
     return {"renamed": renamed, "skipped": skipped, "errors": errors}
@@ -825,6 +839,8 @@ def organize():
         except Exception as e:
             errors.append(f)
 
+    if moved:
+        _invalidate_file_cache()
     return jsonify({"moved": moved, "skipped": skipped, "errors": errors})
 
 
