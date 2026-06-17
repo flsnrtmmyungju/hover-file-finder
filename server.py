@@ -1106,6 +1106,60 @@ def extract_all():
     return jsonify({"ok": True, "done": done, "errors": errors})
 
 
+@app.route("/epub-convert", methods=["GET", "POST"])
+def epub_convert():
+    import shutil as _shutil
+    config = load_config()
+    downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
+    filename = request.args.get("filename", "").strip()
+
+    if not filename:
+        return jsonify({"error": "파일명 없음"}), 400
+
+    # calibre 설치 확인
+    ebook_convert = _shutil.which("ebook-convert")
+    if not ebook_convert:
+        return jsonify({
+            "error": "calibre 미설치",
+            "install": "sudo apt install calibre"
+        }), 503
+
+    # epub 파일 찾기
+    epub_path = None
+    for root, _, files in os.walk(downloads_dir):
+        if filename in files:
+            epub_path = os.path.join(root, filename)
+            break
+
+    if not epub_path or not os.path.isfile(epub_path):
+        return jsonify({"error": f"파일 없음: {filename}"}), 404
+
+    stem = re.sub(r'\.epub$', '', filename, flags=re.IGNORECASE)
+    folder = os.path.join(os.path.dirname(epub_path), stem)
+
+    try:
+        os.makedirs(folder, exist_ok=True)
+        new_epub = os.path.join(folder, filename)
+        shutil.move(epub_path, new_epub)
+
+        txt_name = stem + ".txt"
+        txt_path = os.path.join(folder, txt_name)
+
+        result = subprocess.run(
+            [ebook_convert, new_epub, txt_path],
+            capture_output=True, text=True, timeout=120
+        )
+        if result.returncode != 0:
+            return jsonify({"error": "변환 실패", "detail": result.stderr[-500:]}), 500
+
+        _invalidate_file_cache()
+        _warm_file_cache(downloads_dir)
+        return jsonify({"ok": True, "folder": stem, "txt": txt_name})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/clean-name")
 def clean_name_api():
     raw = request.args.get("name", "")
