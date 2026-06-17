@@ -1160,6 +1160,190 @@ def epub_convert():
         return jsonify({"error": str(e)}), 500
 
 
+_epub_status = {"running": False, "total": 0, "done": 0, "failed": 0, "current": "", "succeeded": [], "failures": []}
+
+@app.route("/epub-convert-status")
+def epub_convert_status():
+    return jsonify(_epub_status)
+
+
+@app.route("/epub-batch-convert", methods=["POST"])
+def epub_batch_convert():
+    import shutil as _shutil
+    import threading as _threading
+    config = load_config()
+    downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
+    fail_dir = os.path.join(downloads_dir, "epub변환실패")
+
+    ebook_convert = _shutil.which("ebook-convert")
+    if not ebook_convert:
+        return jsonify({"error": "calibre 미설치", "install": "sudo apt install calibre"}), 503
+
+    epub_files = []
+    for root, dirs, files in os.walk(downloads_dir):
+        dirs[:] = [d for d in dirs if d != "epub변환실패"]
+        for f in files:
+            if f.lower().endswith(".epub"):
+                epub_files.append(os.path.join(root, f))
+
+    if not epub_files:
+        return jsonify({"ok": True, "started": 0, "message": "변환할 epub 없음"})
+
+    if _epub_status["running"]:
+        return jsonify({"error": "이미 변환 중", "status": _epub_status}), 409
+
+    _epub_status.update({"running": True, "total": len(epub_files), "done": 0, "failed": 0, "current": "", "succeeded": [], "failures": []})
+
+    def _is_korean(path):
+        for enc in ("utf-8", "cp949"):
+            try:
+                text = open(path, encoding=enc, errors="strict").read(3000)
+                korean = len(re.findall(r"[가-힣]", text))
+                ratio = korean / max(len(text.replace(" ", "").replace("\n", "")), 1)
+                return ratio >= 0.1
+            except Exception:
+                continue
+        return False
+
+    def _move_to_fail(epub_path):
+        try:
+            os.makedirs(fail_dir, exist_ok=True)
+            _shutil.move(epub_path, os.path.join(fail_dir, os.path.basename(epub_path)))
+        except Exception:
+            pass
+
+    def _convert():
+        import tempfile
+        for epub_path in epub_files:
+            if not os.path.isfile(epub_path):
+                continue
+            filename = os.path.basename(epub_path)
+            _epub_status["current"] = filename
+            total = _epub_status["total"]
+            idx = _epub_status["done"] + _epub_status["failed"] + 1
+            print(f"[epub변환] ({idx}/{total}) {filename}", flush=True)
+            stem = re.sub(r"\.epub$", "", filename, flags=re.IGNORECASE)
+            txt_path = os.path.join(os.path.dirname(epub_path), stem + ".txt")
+            tmp_fd, tmp_path = tempfile.mkstemp(suffix=".txt")
+            os.close(tmp_fd)
+            try:
+                result = subprocess.run(
+                    [ebook_convert, epub_path, tmp_path],
+                    capture_output=True, text=True, timeout=300
+                )
+                if result.returncode != 0 or not os.path.isfile(tmp_path):
+                    _move_to_fail(epub_path)
+                    _epub_status["failed"] += 1
+                    _epub_status["failures"].append(filename)
+                    print(f"[epub변환] ✗ 변환실패: {filename}", flush=True)
+                    continue
+
+                if _is_korean(tmp_path):
+                    _shutil.move(tmp_path, txt_path)
+                    os.remove(epub_path)
+                    _epub_status["done"] += 1
+                    _epub_status["succeeded"].append(filename)
+                    print(f"[epub변환] ✓ 완료: {filename}", flush=True)
+                else:
+                    _move_to_fail(epub_path)
+                    _epub_status["failed"] += 1
+                    _epub_status["failures"].append(filename)
+                    print(f"[epub변환] ✗ 한글미달: {filename}", flush=True)
+            except Exception as e:
+                _move_to_fail(epub_path)
+                _epub_status["failed"] += 1
+                _epub_status["failures"].append(filename)
+                print(f"[epub변환] ✗ 오류: {filename} — {e}", flush=True)
+            finally:
+                try: os.remove(tmp_path)
+                except Exception: pass
+        _epub_status["running"] = False
+        _epub_status["current"] = ""
+        print(f"[epub변환] 완료 — 성공 {_epub_status['done']}개 / 실패 {_epub_status['failed']}개", flush=True)
+        _invalidate_file_cache()
+        _warm_file_cache(downloads_dir)
+
+    _threading.Thread(target=_convert, daemon=True).start()
+    return jsonify({"ok": True, "started": len(epub_files)})
+
+
+def _history_path():
+    config = load_config()
+    downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
+    archive_folder = config.get("archive_folder", "소설")
+    return os.path.join(downloads_dir, archive_folder, ".reader_history.json")
+
+def _load_history():
+    try:
+        import json as _j
+        return _j.load(open(_history_path(), encoding="utf-8"))
+    except Exception:
+        return []
+
+def _save_history(data):
+    try:
+        import json as _j
+        _j.dump(data, open(_history_path(), "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+@app.route("/history")
+def get_history():
+    return jsonify(_load_history())
+
+
+@app.route("/history/save", methods=["POST"])
+def save_history():
+    import datetime
+    body = request.get_json(silent=True) or {}
+    filename = body.get("filename", "").strip()
+    position = float(body.get("position", 0))
+    if not filename:
+        return jsonify({"error": "파일명 없음"}), 400
+    hist = _load_history()
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    hist = [h for h in hist if h.get("filename") != filename]
+    hist.insert(0, {"filename": filename, "position": position, "opened_at": now})
+    _save_history(hist)
+    return jsonify({"ok": True})
+
+
+@app.route("/history/delete", methods=["POST"])
+def delete_history():
+    body = request.get_json(silent=True) or {}
+    filename = body.get("filename", "").strip()
+    _save_history([h for h in _load_history() if h.get("filename") != filename])
+    return jsonify({"ok": True})
+
+
+@app.route("/history/clear", methods=["POST"])
+def clear_history():
+    _save_history([])
+    return jsonify({"ok": True})
+
+
+@app.route("/view")
+def view_file():
+    filename = request.args.get("filename", "").strip()
+    if not filename:
+        return jsonify({"error": "파일명 없음"}), 400
+    config = load_config()
+    downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
+    for root, dirs, files in os.walk(downloads_dir):
+        if filename in files:
+            path = os.path.join(root, filename)
+            for enc in ("utf-8", "cp949"):
+                try:
+                    content = open(path, encoding=enc, errors="strict").read()
+                    return jsonify({"ok": True, "content": content})
+                except Exception:
+                    continue
+            content = open(path, encoding="utf-8", errors="replace").read()
+            return jsonify({"ok": True, "content": content})
+    return jsonify({"error": "파일 없음"}), 404
+
+
 @app.route("/clean-name")
 def clean_name_api():
     raw = request.args.get("name", "")
