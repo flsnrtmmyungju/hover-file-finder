@@ -245,6 +245,9 @@ HANJA_AFTER     = "後"        # 後 (후기/에필)
 def clean_name(stem, skip_spacing=False):
     # 특수 공백 문자 → 일반 공백
     s = stem.replace('\xa0', ' ').replace('​', '').replace('　', ' ')
+    # 특수문자 제거 (■ & → 제외)
+    s = re.sub(r'[^\w가-힣\s\-_()\[\]★♥~+/■&→﻿]', '', s)
+    s = s.replace('﻿', '')  # BOM 제거
     # 끝 날짜태그 제거 (예: -현판TS260322, -로 260321, -현ts260306)
     s = re.sub(r'[-]\s*[가-힣]{1,3}[a-zA-Z]{0,2}\s?\d{6}\s*$', '', s)
     # 2단계: 파일명 앞 [텍스트] 처리 (괄호 제거 전에 먼저)
