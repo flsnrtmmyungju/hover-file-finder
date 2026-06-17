@@ -122,7 +122,7 @@ def _warm_file_cache(downloads_dir):
         clean_stems = {}
         for f in files:
             try:
-                clean_stems[f] = clean_name(Path(f).stem)
+                clean_stems[f] = clean_name(Path(f).stem, skip_spacing=True)
             except Exception:
                 clean_stems[f] = Path(f).stem
         _file_cache["clean_stems"] = clean_stems
