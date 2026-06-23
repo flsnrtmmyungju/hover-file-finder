@@ -1344,6 +1344,127 @@ def view_file():
     return jsonify({"error": "파일 없음"}), 404
 
 
+@app.route("/reading-status", methods=["GET", "POST", "DELETE"])
+def reading_status_api():
+    from datetime import datetime as _dt
+    config = load_config()
+    downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
+    archive = config.get("archive_folder", "소설")
+    status_file = os.path.join(downloads_dir, archive, "reading_status.json")
+
+    def _load():
+        if os.path.isfile(status_file):
+            with open(status_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        return {}
+
+    def _save(data):
+        os.makedirs(os.path.dirname(status_file), exist_ok=True)
+        with open(status_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    if request.method == "GET":
+        return jsonify(_load())
+
+    if request.method == "DELETE":
+        fname = (request.args.get("filename") or "").strip()
+        if not fname:
+            return jsonify({"error": "filename 없음"}), 400
+        data = _load()
+        data.pop(fname, None)
+        _save(data)
+        return jsonify({"ok": True})
+
+    # POST — 상태 저장
+    body = request.get_json(silent=True) or {}
+    fname  = body.get("filename", "").strip()
+    status = body.get("status", "").strip()
+    if not fname or status not in ("포기", "다읽음"):
+        return jsonify({"error": "invalid"}), 400
+    data = _load()
+    data[fname] = {"status": status, "date": _dt.now().strftime("%Y-%m-%d"), "ts": int(_dt.now().timestamp())}
+    _save(data)
+    return jsonify({"ok": True})
+
+
+def _novel_data_path():
+    config = load_config()
+    downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
+    archive = config.get("archive_folder", "소설")
+    return os.path.join(downloads_dir, archive, "저장정보.json")
+
+def _load_novel_data():
+    p = _novel_data_path()
+    if os.path.isfile(p):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    # 기존 파일에서 마이그레이션
+    data = {}
+    try:
+        for h in _load_history():
+            fn = h.get("filename", "")
+            if fn:
+                data[fn] = {"status": "기록", "position": h.get("position", 0), "opened_at": h.get("opened_at", "")}
+    except Exception:
+        pass
+    try:
+        config2 = load_config()
+        sf = os.path.join(resolve_downloads_dir(config2.get("downloads_dir", "")), config2.get("archive_folder", "소설"), "reading_status.json")
+        if os.path.isfile(sf):
+            with open(sf, "r", encoding="utf-8") as f:
+                statuses = json.load(f)
+            for fn, info in statuses.items():
+                if fn not in data:
+                    data[fn] = {"status": info.get("status", "기록"), "position": 0, "opened_at": info.get("date", "")}
+                else:
+                    data[fn]["status"] = info.get("status", "기록")
+    except Exception:
+        pass
+    if data:
+        _save_novel_data(data)
+    return data
+
+def _save_novel_data(data):
+    p = _novel_data_path()
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+@app.route("/novel-data", methods=["GET", "POST", "DELETE"])
+def novel_data_api():
+    import datetime as _dt_mod
+    if request.method == "GET":
+        return jsonify(_load_novel_data())
+    if request.method == "DELETE":
+        fname = (request.args.get("filename") or "").strip()
+        if not fname:
+            return jsonify({"error": "filename 없음"}), 400
+        data = _load_novel_data()
+        data.pop(fname, None)
+        _save_novel_data(data)
+        return jsonify({"ok": True})
+    # POST
+    body = request.get_json(silent=True) or {}
+    fname = body.get("filename", "").strip()
+    if not fname:
+        return jsonify({"error": "filename 없음"}), 400
+    data = _load_novel_data()
+    entry = data.get(fname, {})
+    if "status" in body:
+        entry["status"] = body["status"]
+    if "position" in body:
+        entry["position"] = float(body["position"])
+        entry["opened_at"] = _dt_mod.datetime.now().isoformat(timespec="seconds")
+    if "status" not in entry:
+        entry["status"] = "기록"
+    data[fname] = entry
+    _save_novel_data(data)
+    return jsonify({"ok": True})
+
+
 @app.route("/clean-name")
 def clean_name_api():
     raw = request.args.get("name", "")
@@ -1352,14 +1473,413 @@ def clean_name_api():
     return jsonify({"original": raw, "cleaned": result})
 
 
+@app.route("/manifest.json")
+def pwa_manifest():
+    return json.dumps({
+        "name": "소설 뷰어",
+        "short_name": "소설 뷰어",
+        "start_url": "/",
+        "display": "standalone",
+        "background_color": "#1e1e2e",
+        "theme_color": "#1e1e2e",
+        "icons": [
+            {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml"}
+        ]
+    }, ensure_ascii=False), 200, {"Content-Type": "application/manifest+json"}
+
+@app.route("/icon.svg")
+def pwa_icon():
+    svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="80" fill="#1e1e2e"/><text x="256" y="340" font-size="320" text-anchor="middle">📚</text></svg>'
+    return svg, 200, {"Content-Type": "image/svg+xml"}
+
+@app.route("/sw.js")
+def service_worker():
+    js = """self.addEventListener('install',e=>e.waitUntil(self.skipWaiting()));
+self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
+self.addEventListener('fetch',e=>e.respondWith(fetch(e.request).catch(()=>new Response('오프라인',{headers:{'Content-Type':'text/plain;charset=utf-8'}}))));"""
+    return js, 200, {"Content-Type": "application/javascript"}
+
+@app.route("/")
+def web_index():
+    return """<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>소설 뷰어</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1e1e2e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="소설 뷰어">
+<link rel="apple-touch-icon" href="/icon.svg">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#1e1e2e;color:#cdd6f4;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+#tabBar{display:flex;background:#181825;border-bottom:1px solid #313244;flex-shrink:0}
+.tab-btn{flex:1;padding:10px 4px;background:none;border:none;border-bottom:2px solid transparent;color:#6c7086;font-size:12px;font-weight:700;cursor:pointer}
+.tab-btn.active{color:#89b4fa;border-bottom-color:#89b4fa}
+.tab-panel{display:none;flex:1;flex-direction:column;overflow:hidden}
+.tab-panel.active{display:flex}
+#searchPane{padding:10px;gap:8px;display:none;flex-direction:column}
+#searchPane.active{display:flex}
+.search-row{display:flex;gap:6px}
+.search-row input{flex:1;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:6px;padding:8px 10px;font-size:13px;outline:none}
+.search-row input:focus{border-color:#89b4fa}
+.search-row button{background:#89b4fa;color:#1e1e2e;border:none;border-radius:6px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0}
+.list-scroll{flex:1;overflow-y:auto;padding:4px 10px}
+.item{display:flex;align-items:center;gap:8px;padding:10px 6px;border-bottom:1px solid #313244;cursor:pointer}
+.item:active{background:#26263a}
+.item-info{flex:1;overflow:hidden}
+.item-name{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item-meta{font-size:11px;color:#6c7086;margin-top:2px}
+.item-size{font-size:11px;color:#6c7086;flex-shrink:0}
+.exact{background:#a6e3a1;border-radius:6px;margin-bottom:2px;border-bottom:none;padding:10px 8px}
+.exact .item-name{color:#1e1e2e}
+.exact .item-meta,.exact .item-size{color:#2d6a4f}
+.del-btn{background:none;border:none;color:#45475a;font-size:16px;cursor:pointer;padding:0 4px;flex-shrink:0}
+.del-btn:active{color:#f38ba8}
+.back-btn{background:none;border:none;color:#89b4fa;font-size:15px;cursor:pointer;padding:0 4px;flex-shrink:0}
+.empty{color:#6c7086;font-size:12px;padding:16px 0;text-align:center}
+</style>
+</head>
+<body>
+<div id="tabBar">
+  <button class="tab-btn active" data-tab="search">검색</button>
+  <button class="tab-btn" data-tab="history">기록</button>
+  <button class="tab-btn" data-tab="finished">다읽음</button>
+  <button class="tab-btn" data-tab="giveup">포기</button>
+</div>
+<div class="tab-panel active" id="tab-search">
+  <div id="searchPane" class="active">
+    <div class="search-row">
+      <input id="q" placeholder="소설 제목 검색..." type="search">
+      <button onclick="doSearch()">검색</button>
+    </div>
+    <div class="list-scroll" id="results"></div>
+  </div>
+</div>
+<div class="tab-panel" id="tab-history"><div class="list-scroll" id="histList"></div></div>
+<div class="tab-panel" id="tab-finished"><div class="list-scroll" id="finList"></div></div>
+<div class="tab-panel" id="tab-giveup"><div class="list-scroll" id="gpList"></div></div>
+<script>
+if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
+const S = '';
+function relTime(s){if(!s)return'';const d=(Date.now()-new Date(s).getTime())/1000;if(d<60)return'방금';if(d<3600)return Math.floor(d/60)+'분 전';if(d<86400)return Math.floor(d/3600)+'시간 전';if(d<604800)return Math.floor(d/86400)+'일 전';return Math.floor(d/604800)+'주 전';}
+function openViewer(fn){location.href='/web-viewer?filename='+encodeURIComponent(fn);}
+
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
+    if(btn.dataset.tab==='history') loadStatus('기록','histList',true);
+    if(btn.dataset.tab==='finished') loadStatus('다읽음','finList',false);
+    if(btn.dataset.tab==='giveup') loadStatus('포기','gpList',false);
+  });
+});
+
+const qEl=document.getElementById('q');
+qEl.addEventListener('keydown',e=>{if(e.key==='Enter')doSearch();});
+function doSearch(){
+  const q=qEl.value.trim();if(!q)return;
+  const res=document.getElementById('results');
+  res.innerHTML='<div class="empty">검색 중...</div>';
+  fetch(S+'/search?text='+encodeURIComponent(q)).then(r=>r.json()).then(data=>{
+    res.innerHTML='';
+    const items=[...(data.exact||[]).map(i=>({...i,ex:true})),...(data.partial||[])];
+    if(!items.length){res.innerHTML='<div class="empty">결과 없음</div>';return;}
+    items.forEach(item=>{
+      const name=typeof item==='object'?item.name:item;
+      if(!name.toLowerCase().endsWith('.txt'))return;
+      const d=document.createElement('div');
+      d.className='item'+(item.ex?' exact':'');
+      d.innerHTML='<div class="item-info"><div class="item-name">'+name.replace(/\\.txt$/i,'')+'</div></div>'
+        +'<span class="item-size">'+(item.size?item.size+' MB':'')+'</span>';
+      d.addEventListener('click',()=>openViewer(name));
+      res.appendChild(d);
+    });
+  }).catch(()=>{res.innerHTML='<div class="empty">오류</div>';});
+}
+
+function loadStatus(statusFilter,containerId,isHistory){
+  const c=document.getElementById(containerId);
+  c.innerHTML='<div class="empty">불러오는 중...</div>';
+  fetch(S+'/novel-data').then(r=>r.json()).then(all=>{
+    const entries=Object.entries(all)
+      .filter(([,v])=>v.status===statusFilter)
+      .sort((a,b)=>(b[1].opened_at||'')>(a[1].opened_at||'')?1:-1);
+    c.innerHTML='';
+    if(!entries.length){c.innerHTML='<div class="empty">'+statusFilter+' 목록 없음</div>';return;}
+    entries.forEach(([fname,v])=>{
+      const row=document.createElement('div');
+      row.className='item';
+      row.innerHTML='<div class="item-info"><div class="item-name">'+fname.replace(/\\.txt$/i,'')+'</div>'
+        +'<div class="item-meta">'+((v.position??0).toFixed(0))+'% · '+relTime(v.opened_at)+'</div></div>';
+      row.addEventListener('click',()=>openViewer(fname));
+      if(!isHistory){
+        const back=document.createElement('button');
+        back.className='back-btn';back.textContent='↩';back.title='기록으로';
+        back.addEventListener('click',e=>{e.stopPropagation();
+          fetch(S+'/novel-data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:fname,status:'기록'})})
+          .then(()=>row.remove());});
+        row.appendChild(back);
+      }
+      const del=document.createElement('button');
+      del.className='del-btn';del.textContent='🗑';
+      del.addEventListener('click',e=>{e.stopPropagation();
+        if(!confirm('삭제하시겠습니까?'))return;
+        fetch(S+'/novel-data?filename='+encodeURIComponent(fname),{method:'DELETE'}).then(()=>row.remove());});
+      row.appendChild(del);
+      c.appendChild(row);
+    });
+  }).catch(()=>{c.innerHTML='<div class="empty">오류</div>';});
+}
+</script>
+</body>
+</html>"""
+
+
+@app.route("/web-viewer")
+def web_viewer():
+    filename = request.args.get("filename", "")
+    fn_json = json.dumps(filename)
+    return f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{filename.replace('.txt','')}</title>
+<style>
+:root{{--sb-track:#1e1e2e;--sb-thumb:rgba(255,255,255,0.13)}}
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#1e1e2e;color:#cdd6f4;height:100dvh;display:flex;flex-direction:column;overflow:hidden}}
+#topbar{{display:flex;align-items:center;gap:6px;padding:8px 10px;background:#181825;border-bottom:1px solid #313244;flex-shrink:0;flex-wrap:wrap}}
+#backBtn{{background:none;border:none;color:#89b4fa;font-size:18px;cursor:pointer;padding:0 4px;flex-shrink:0}}
+#title{{flex:1;font-size:12px;font-weight:700;color:#89b4fa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}}
+#chapterSelect{{background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;padding:3px 4px;font-size:11px;max-width:140px;cursor:pointer}}
+#posInfo{{font-size:11px;color:#6c7086;flex-shrink:0}}
+.topbar-select{{background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;padding:3px 5px;font-size:11px;cursor:pointer;flex-shrink:0}}
+.tbtn{{background:none;border:1px solid #45475a;color:#cdd6f4;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;flex-shrink:0;white-space:nowrap}}
+.tbtn:active{{background:#313244}}
+.tbtn.saved{{color:#a6e3a1;border-color:#a6e3a1}}
+#settingsPanel{{display:none;background:#181825;border-bottom:1px solid #313244;padding:10px 12px;flex-shrink:0;gap:10px;flex-wrap:wrap;align-items:center}}
+#settingsPanel.open{{display:flex}}
+.sg{{display:flex;align-items:center;gap:5px;white-space:nowrap}}
+.sl{{font-size:11px;color:#6c7086;min-width:44px}}
+.sg input[type=range]{{width:80px;accent-color:#89b4fa}}
+.sg input[type=color]{{width:28px;height:22px;border:1px solid #45475a;border-radius:3px;background:none;cursor:pointer;padding:1px}}
+.sg select{{background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;padding:2px 4px;font-size:11px}}
+.sv{{font-size:11px;color:#a6adc8;min-width:26px}}
+#resetBtn{{background:#313244;border:1px solid #45475a;color:#f38ba8;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer}}
+#content{{flex:1;overflow-y:auto;padding:20px 5%;line-height:2;font-size:15px;white-space:pre-wrap;word-break:break-word;scrollbar-color:var(--sb-thumb) var(--sb-track);scrollbar-width:thin}}
+#content::-webkit-scrollbar{{width:4px}}
+#content::-webkit-scrollbar-track{{background:var(--sb-track)}}
+#content::-webkit-scrollbar-thumb{{background:var(--sb-thumb);border-radius:2px}}
+#loading{{display:flex;align-items:center;justify-content:center;flex:1;color:#6c7086;font-size:14px;flex-direction:column;gap:12px}}
+.load-actions{{display:flex;gap:8px}}
+.load-actions button{{border:1px solid #45475a;border-radius:6px;padding:7px 18px;font-size:12px;cursor:pointer;background:#313244;color:#cdd6f4}}
+.load-actions .ok{{color:#a6e3a1;border-color:#a6e3a1}}
+.ch{{display:block;color:#89b4fa;font-weight:700;font-size:13px;margin:32px 0 8px;padding-top:8px;border-top:1px solid #313244}}
+.ch:first-child{{margin-top:0;border-top:none}}
+</style>
+</head>
+<body>
+<div id="topbar">
+  <button id="backBtn" onclick="history.back()">←</button>
+  <span id="title"></span>
+  <select id="chapterSelect" style="display:none"></select>
+  <span id="posInfo"></span>
+  <select class="topbar-select" id="statusSelect">
+    <option value="기록">기록</option>
+    <option value="포기">포기</option>
+    <option value="다읽음">다읽음</option>
+  </select>
+  <button class="tbtn" id="saveStatusBtn">상태저장</button>
+  <button class="tbtn" id="savePosBtn">위치저장</button>
+  <button class="tbtn" id="settingsBtn">⚙</button>
+</div>
+<div id="settingsPanel">
+  <div class="sg"><span class="sl">좌우여백</span><input type="range" id="sPadding" min="0" max="20" step="1"><span class="sv" id="vPadding"></span></div>
+  <div class="sg"><span class="sl">글씨체</span>
+    <select id="sFont">
+      <option value="'Malgun Gothic','Apple SD Gothic Neo',sans-serif">기본</option>
+      <option value="'Nanum Gothic',sans-serif">나눔고딕</option>
+      <option value="'Nanum Myeongjo',serif">나눔명조</option>
+      <option value="serif">명조</option>
+    </select>
+  </div>
+  <div class="sg"><span class="sl">글씨크기</span><input type="range" id="sFontSize" min="12" max="28" step="1"><span class="sv" id="vFontSize"></span></div>
+  <div class="sg"><span class="sl">줄간격</span><input type="range" id="sLineHeight" min="1.2" max="3.5" step="0.1"><span class="sv" id="vLineHeight"></span></div>
+  <div class="sg"><span class="sl">배경색</span><input type="color" id="sBg"></div>
+  <div class="sg"><span class="sl">글자색</span><input type="color" id="sFg"></div>
+  <button id="resetBtn">기본값</button>
+</div>
+<div id="loading"><span>불러오는 중...</span></div>
+<div id="content" style="display:none"></div>
+<script>
+const filename = {fn_json};
+const S = '';
+const DEFAULTS = {{padding:5,font:"'Malgun Gothic','Apple SD Gothic Neo',sans-serif",fontSize:16,lineHeight:2.0,bg:'#1e1e2e',fg:'#cdd6f4'}};
+const LS_KEY = 'viewer_style';
+const contentEl = document.getElementById('content');
+
+document.getElementById('title').textContent = filename.replace(/\\.txt$/i,'');
+document.title = filename.replace(/\\.txt$/i,'');
+
+function loadStyle(){{try{{return Object.assign({{}},DEFAULTS,JSON.parse(localStorage.getItem(LS_KEY)||'{{}}'));}}catch{{return{{...DEFAULTS}};}}}}
+function saveStyle(st){{localStorage.setItem(LS_KEY,JSON.stringify(st));}}
+function hexLum(hex){{const r=parseInt(hex.slice(1,3),16)/255,g=parseInt(hex.slice(3,5),16)/255,b=parseInt(hex.slice(5,7),16)/255;return 0.299*r+0.587*g+0.114*b;}}
+function applyStyle(st){{
+  contentEl.style.padding=`20px ${{st.padding}}%`;
+  contentEl.style.fontFamily=st.font;
+  contentEl.style.fontSize=st.fontSize+'px';
+  contentEl.style.lineHeight=st.lineHeight;
+  document.body.style.background=st.bg;
+  contentEl.style.color=st.fg;
+  const r=document.documentElement;
+  r.style.setProperty('--sb-track',st.bg);
+  r.style.setProperty('--sb-thumb',hexLum(st.bg)<0.5?'rgba(255,255,255,0.13)':'rgba(0,0,0,0.15)');
+}}
+function syncUI(st){{
+  document.getElementById('sPadding').value=st.padding;
+  document.getElementById('sFontSize').value=st.fontSize;
+  document.getElementById('sLineHeight').value=st.lineHeight;
+  document.getElementById('sBg').value=st.bg;
+  document.getElementById('sFg').value=st.fg;
+  document.getElementById('vPadding').textContent=st.padding+'%';
+  document.getElementById('vFontSize').textContent=st.fontSize+'px';
+  document.getElementById('vLineHeight').textContent=parseFloat(st.lineHeight).toFixed(1);
+  const sel=document.getElementById('sFont');
+  for(const o of sel.options)if(o.value===st.font){{sel.value=st.font;break;}}
+}}
+let curStyle=loadStyle();
+applyStyle(curStyle);
+syncUI(curStyle);
+
+document.getElementById('settingsBtn').addEventListener('click',()=>{{
+  const p=document.getElementById('settingsPanel');
+  p.classList.toggle('open');
+}});
+function onChange(){{
+  curStyle={{
+    padding:parseInt(document.getElementById('sPadding').value),
+    font:document.getElementById('sFont').value,
+    fontSize:parseInt(document.getElementById('sFontSize').value),
+    lineHeight:parseFloat(document.getElementById('sLineHeight').value),
+    bg:document.getElementById('sBg').value,
+    fg:document.getElementById('sFg').value,
+  }};
+  document.getElementById('vPadding').textContent=curStyle.padding+'%';
+  document.getElementById('vFontSize').textContent=curStyle.fontSize+'px';
+  document.getElementById('vLineHeight').textContent=curStyle.lineHeight.toFixed(1);
+  applyStyle(curStyle);saveStyle(curStyle);
+}}
+['sPadding','sFont','sFontSize','sLineHeight','sBg','sFg'].forEach(id=>document.getElementById(id).addEventListener('input',onChange));
+document.getElementById('resetBtn').addEventListener('click',()=>{{curStyle={{...DEFAULTS}};syncUI(curStyle);applyStyle(curStyle);saveStyle(curStyle);}});
+
+function getScrollPct(){{const max=contentEl.scrollHeight-contentEl.clientHeight;return max>0?Math.round(contentEl.scrollTop/max*1000)/10:0;}}
+function savePosition(){{
+  if(!filename)return;
+  fetch(S+'/novel-data',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{filename,position:getScrollPct()}})}}).catch(()=>{{}});
+}}
+function saveStatus(status){{
+  return fetch(S+'/novel-data',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{filename,status,position:getScrollPct()}})}});
+}}
+
+let stTimer=null,posTimer=null;
+document.getElementById('saveStatusBtn').addEventListener('click',()=>{{
+  saveStatus(document.getElementById('statusSelect').value).then(()=>{{
+    const b=document.getElementById('saveStatusBtn');
+    b.classList.add('saved');clearTimeout(stTimer);
+    stTimer=setTimeout(()=>b.classList.remove('saved'),1500);
+  }}).catch(()=>{{}});
+}});
+document.getElementById('savePosBtn').addEventListener('click',()=>{{
+  savePosition();
+  const b=document.getElementById('savePosBtn');
+  b.classList.add('saved');clearTimeout(posTimer);
+  posTimer=setTimeout(()=>b.classList.remove('saved'),1500);
+}});
+
+const CH_RE=/^(?:제\\s*\\d+\\s*화|#\\s*\\d+|\\d+\\s*화|chapter\\s*\\d+|\\[\\d+화?\\])/i;
+function esc(s){{return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}}
+
+fetch(S+'/view?filename='+encodeURIComponent(filename))
+  .then(r=>{{if(r.status===404)return r.json().then(j=>{{throw Object.assign(new Error(j.error||'없음'),{{notFound:true}});}});return r.json();}})
+  .then(data=>{{
+    const loadEl=document.getElementById('loading');
+    loadEl.remove();
+    contentEl.style.display='block';
+    applyStyle(curStyle);
+    const lines=(data.content||'').split('\\n');
+    const chapters=[];let html='',ci=0;
+    for(const line of lines){{
+      const t=line.trim();
+      if(t&&CH_RE.test(t)){{const id='ch'+ci++;chapters.push({{id,title:t}});html+=`<span class="ch" id="${{id}}">${{esc(line)}}</span>`;}}
+      else html+=esc(line)+'\\n';
+    }}
+    contentEl.innerHTML=html;
+    if(chapters.length){{
+      const sel=document.getElementById('chapterSelect');
+      sel.style.display='block';
+      chapters.forEach(ch=>{{const o=document.createElement('option');o.value=ch.id;o.textContent=ch.title.slice(0,25);sel.appendChild(o);}});
+      sel.addEventListener('change',()=>document.getElementById(sel.value)?.scrollIntoView({{behavior:'smooth'}}));
+      const anchors=chapters.map(ch=>document.getElementById(ch.id));
+      contentEl.addEventListener('scroll',()=>{{
+        const top=contentEl.scrollTop+60;let cur=0;
+        for(let i=0;i<anchors.length;i++)if(anchors[i]&&anchors[i].offsetTop<=top)cur=i;
+        sel.selectedIndex=cur;
+      }},{{passive:true}});
+    }}
+    fetch(S+'/novel-data').then(r=>r.json()).then(all=>{{
+      const e=all[filename];
+      if(e){{
+        if(e.status)document.getElementById('statusSelect').value=e.status;
+        if(e.position>0)setTimeout(()=>{{const max=contentEl.scrollHeight-contentEl.clientHeight;contentEl.scrollTop=max*e.position/100;}},150);
+      }}
+    }}).catch(()=>{{}});
+    contentEl.addEventListener('scroll',()=>{{document.getElementById('posInfo').textContent=getScrollPct().toFixed(0)+'%';}},{{passive:true}});
+  }})
+  .catch(err=>{{
+    const loadEl=document.getElementById('loading');
+    if(err.notFound){{
+      loadEl.querySelector('span').textContent='파일이 삭제되었습니다.';
+      const acts=document.createElement('div');acts.className='load-actions';
+      const ok=document.createElement('button');ok.className='ok';ok.textContent='기록에서 제거';
+      ok.addEventListener('click',()=>{{fetch(S+'/novel-data?filename='+encodeURIComponent(filename),{{method:'DELETE'}}).catch(()=>{{}});loadEl.querySelector('span').textContent='제거했습니다.';acts.remove();}});
+      const no=document.createElement('button');no.textContent='취소';
+      no.addEventListener('click',()=>acts.remove());
+      acts.appendChild(ok);acts.appendChild(no);loadEl.appendChild(acts);
+    }}else{{loadEl.querySelector('span').textContent='파일 로드 실패';}}
+  }});
+</script>
+</body>
+</html>"""
+
+
 if __name__ == "__main__":
     config = load_config()
     port = config.get("port", 7823)
     raw = config.get("downloads_dir", "")
     resolved = resolve_downloads_dir(raw)
+    lan_ip = config.get("lan_ip", "")
+    if not lan_ip:
+        try:
+            import subprocess
+            r = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+                 "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.IPAddress -notlike '169.*' -and $_.IPAddress -notlike '172.*' -and $_.IPAddress -ne '127.0.0.1'} | Select-Object -First 1).IPAddress"],
+                capture_output=True, text=True, timeout=5
+            )
+            lan_ip = r.stdout.strip()
+        except Exception:
+            lan_ip = "???"
     print(f"서버 시작: http://localhost:{port}")
+    print(f"폰 접속: http://{lan_ip}:{port}")
     print(f"다운로드 폴더: {resolved}")
     if not os.path.isdir(resolved):
         print("경고: 폴더가 존재하지 않습니다.")
     _warm_file_cache(resolved)
-    app.run(port=port, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False)
