@@ -357,6 +357,7 @@ def clean_name(stem, skip_spacing=False):
     s = re.sub(r" +", " ", s).strip()
     if not skip_spacing:
         s = fix_spacing(s)
+    s = join_single_syllables(s)  # 무협/외래어 음절 분리 교정 (능 천신 제 → 능천신제)
     # 띄어쓰기 후 재처리 - 한글이 아닌 문자로 둘러싸인 단어 치환
     s = re.sub(r"(?<![가-힣])외전(?![가-힣])", " 외 ", s)
     s = re.sub(r"(?<![가-힣])후기(?![가-힣])", " 후 ", s)
