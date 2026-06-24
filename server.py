@@ -536,8 +536,10 @@ def rename_file():
         return jsonify({"error": "파일명 오류"}), 400
 
     # 안전 문자 검사 (경로 탈출 방지)
-    if any(c in new_name for c in ["/", "\\", "..", ":"]):
+    if any(c in new_name for c in ["\\", "..", ":"]):
         return jsonify({"error": "허용되지 않는 문자"}), 400
+    # '/' 는 파일시스템 경로 구분자이므로 시각적으로 동일한 ∕ (U+2215)로 치환
+    new_name = new_name.replace("/", "∕")
 
     import unicodedata
     old_nfc = unicodedata.normalize("NFC", old_name)
@@ -587,7 +589,7 @@ def _do_rename(target_dir, label, recursive=True):
     for processed, (root, f) in enumerate(all_files, 1):
         src = os.path.join(root, f)
         p = Path(f)
-        new_stem = clean_name(p.stem)
+        new_stem = clean_name(p.stem).replace("/", "∕")
         new_name = new_stem + p.suffix
         if new_name == f:
             skipped += 1
@@ -1391,7 +1393,7 @@ def _novel_data_path():
     config = load_config()
     downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
     archive = config.get("archive_folder", "소설")
-    return os.path.join(downloads_dir, archive, "저장정보.json")
+    return os.path.join(downloads_dir, archive, "List.json")
 
 def _load_novel_data():
     p = _novel_data_path()
