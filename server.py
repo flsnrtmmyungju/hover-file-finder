@@ -194,13 +194,32 @@ def strip_episode(text):
     return re.sub(r'\s*\d+[-~]\d+.*$', '', text).strip()
 
 
+_TITLE_MARKERS = {'완', '완결', '미완', '후기', '후', '외전', '외', '번외', '부'}
+
 def join_single_syllables(text):
     """한글이 한 글자씩 공백으로 분리된 경우 합치기"""
     parts = text.split(" ")
-    korean_parts = [p for p in parts if re.match(r"^[가-힣]+$", p)]
-    if korean_parts and all(len(p) == 1 for p in korean_parts):
-        return re.sub(r"(?<=[가-힣]) (?=[가-힣])", "", text)
-    return text
+
+    # 토큰 단위로 1-2자 한글 연속 구간(run)을 찾아 4개 이상이면 붙임
+    # 완/미완 같은 마커는 run에 포함하지 않고 별도 토큰으로 유지
+    # "능 천신 제 엽 경 창 1-978 완" → [능천신제엽경창] [1-978] [완]
+    result = []
+    run = []
+    for part in parts:
+        if re.match(r"^[가-힣]{1,2}$", part) and part not in _TITLE_MARKERS:
+            run.append(part)
+        else:
+            if len(run) >= 4:
+                result.append("".join(run))
+            else:
+                result.extend(run)
+            run = []
+            result.append(part)
+    if len(run) >= 4:
+        result.append("".join(run))
+    else:
+        result.extend(run)
+    return " ".join(r for r in result if r)
 
 
 def score_filename(query_words, filename):
