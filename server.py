@@ -209,8 +209,10 @@ def join_single_syllables(text):
         if re.match(r"^[가-힣]{1,2}$", part) and part not in _TITLE_MARKERS:
             run.append(part)
         else:
-            # 1자 단어가 하나도 없으면 일반 한국어 띄어쓰기 → 붙이지 않음
-            if len(run) >= 4 and any(len(p) == 1 for p in run):
+            # 바로 뒤에 3자 이상 한글 단어가 오면 서술형 제목(조사 포함) → 붙이지 않음
+            # 예) 금강 권 마는 집에 돌아왔다 → 뒤에 '돌아왔다' 있으니 그대로
+            next_long_korean = bool(re.match(r"^[가-힣]{3,}$", part))
+            if len(run) >= 4 and any(len(p) == 1 for p in run) and not next_long_korean:
                 result.append("".join(run))
             else:
                 result.extend(run)
