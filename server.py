@@ -209,13 +209,14 @@ def join_single_syllables(text):
         if re.match(r"^[가-힣]{1,2}$", part) and part not in _TITLE_MARKERS:
             run.append(part)
         else:
-            if len(run) >= 4:
+            # 1자 단어가 하나도 없으면 일반 한국어 띄어쓰기 → 붙이지 않음
+            if len(run) >= 4 and any(len(p) == 1 for p in run):
                 result.append("".join(run))
             else:
                 result.extend(run)
             run = []
             result.append(part)
-    if len(run) >= 4:
+    if len(run) >= 4 and any(len(p) == 1 for p in run):
         result.append("".join(run))
     else:
         result.extend(run)
