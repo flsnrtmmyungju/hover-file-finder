@@ -24,6 +24,8 @@ def send2trash(path):
 
 app = Flask(__name__)
 
+ALLOWED_RENAME_EXTS = {'.txt', '.epub', '.zip'}
+
 # PyInstaller 번들 경로를 sys.path에 추가
 if getattr(sys, 'frozen', False):
     sys.path.insert(0, sys._MEIPASS)
@@ -535,6 +537,11 @@ def rename_file():
     if not old_name or not new_name or old_name == new_name:
         return jsonify({"error": "파일명 오류"}), 400
 
+    # 허용된 확장자만 수정 가능 (.txt, .epub, .zip)
+    old_ext = Path(old_name).suffix.lower()
+    if old_ext not in ALLOWED_RENAME_EXTS:
+        return jsonify({"error": f"지원하지 않는 형식: {old_ext}"}), 400
+
     # 안전 문자 검사 (경로 탈출 방지)
     if any(c in new_name for c in ["\\", "..", ":"]):
         return jsonify({"error": "허용되지 않는 문자"}), 400
@@ -589,6 +596,9 @@ def _do_rename(target_dir, label, recursive=True):
     for processed, (root, f) in enumerate(all_files, 1):
         src = os.path.join(root, f)
         p = Path(f)
+        if p.suffix.lower() not in ALLOWED_RENAME_EXTS:
+            skipped += 1
+            continue
         new_stem = clean_name(p.stem).replace("/", "∕")
         new_name = new_stem + p.suffix
         if new_name == f:
