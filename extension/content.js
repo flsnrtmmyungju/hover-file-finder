@@ -973,7 +973,18 @@
   }
 
   // ── 댓글 + 추천 바 ──────────────────────────────────────────────
-  function buildCommentBar() {
+  function makeAutoComment(items) {
+    const title = (items && items.length > 0)
+      ? (items[0].displayName || items[0].text || "").replace(/\.[^.]+$/, '').trim()
+      : "";
+    let comment = title ? `${title} 감사합니다` : "감사합니다";
+    if (comment.length < 10) {
+      while (comment.length < 15) comment += "!@";
+    }
+    return comment;
+  }
+
+  function buildCommentBar(items) {
     const textarea  = document.querySelector('form.comment-form textarea') ||
                       document.querySelector('.theme-board-comment-form textarea') ||
                       document.querySelector('textarea[placeholder*="댓글"]');
@@ -1026,6 +1037,7 @@
     if (textarea && submitBtn) {
       const ta = document.createElement("textarea");
       Object.assign(ta.style, { width: "100%", height: "56px", background: "#313244", color: "#cdd6f4", border: "1px solid #45475a", borderRadius: "4px", fontSize: "11px", padding: "5px 8px", boxSizing: "border-box", resize: "none", outline: "none", display: "block" });
+      ta.value = makeAutoComment(items);
       ta.placeholder = "댓글 입력...";
       ta.addEventListener("click", (e) => e.stopPropagation());
       ta.addEventListener("keydown", (e) => e.stopPropagation());
@@ -1196,7 +1208,7 @@
         e.preventDefault();
         lastText = "__multi__";
         showMultiple(items);
-        buildCommentBar();
+        buildCommentBar(items);
         return;
       }
     }
