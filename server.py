@@ -131,13 +131,32 @@ def _warm_file_cache(downloads_dir):
         _save_cache()
     threading.Thread(target=_warm, daemon=True).start()
 
-# ── 띄어쓰기 예외 복합어 목록 ─────────────────────────────────────
-# Kiwi가 분리하면 안 되는 단어들. 필요 시 자유롭게 추가하세요.
+# ── 복합어 / 고유명사 사전 ────────────────────────────────────────
 from compound_words import COMPOUND_WORDS
 
+# 고유명사 사전: 이미 굳어진 소설 제목 / 시리즈명 — 절대 분리 금지
+# (공백 없이 붙여 쓰는 브랜드형 제목만 등록. 공백 포함 제목은 등록 금지)
+PROPER_NOUNS = frozenset({
+    "갓오브블랙필드", "곤륜마협", "검신검마", "화산귀환", "전지적독자시점",
+    "나혼자만렙뉴비", "나혼자레벨업", "나혼자만레벨업",
+})
+
+# 직업·신분 명사 사전: 앞에 수식어가 붙어있으면 공백 추가
+# (COMPOUND_WORDS에 포함된 복합어는 그대로 유지됨)
+_JOB_WORDS = [
+    "변호사", "판사",
+    "배우", "작가", "감독", "코치",
+    "투수", "포수", "타자", "선수",
+    "교수", "강사", "교사",
+    "기자", "아나운서",
+]
+_COMPOUND_SET = frozenset(COMPOUND_WORDS)
+
+
 def _apply_rules(s):
-    """Kiwi 없이도 동작하는 공통 후처리 규칙"""
-    # 복합어 재결합
+    """파일명 띄어쓰기 교정 — 사전+규칙 기반 (Kiwi 불사용)"""
+
+    # ── 1차: 복합어·고유명사 보호 (분리된 경우 재결합) ───────────────
     for word in COMPOUND_WORDS:
         if word not in s:
             for i in range(1, len(word)):
@@ -145,42 +164,78 @@ def _apply_rules(s):
                 if re.search(pat, s):
                     s = re.sub(pat, word, s)
                     break
+
+    for noun in PROPER_NOUNS:
+        if noun not in s:
+            for i in range(1, len(noun)):
+                pat = re.escape(noun[:i]) + r"\s+" + re.escape(noun[i:])
+                if re.search(pat, s):
+                    s = re.sub(pat, noun, s)
+                    break
+
+    # 등급·접미사 붙이기
     s = re.sub(r"([A-Za-z0-9가-힣])\s+급(?![가-힣])", r"\1급", s)
     s = re.sub(r"(\S)\s+%", r"\1%", s)
-    s = re.sub(r"(?<![가-힣])(\d+)\s+([가-힣])", r"\1\2", s)
     s = re.sub(r"(\d+회)\s+차(?![가-힣])", r"\1차", s)
+
+    # 미완/완 정리
     s = re.sub(r"미\s+완", "미완", s)
     s = re.sub(r"(?<!\s)미완$", " 미완", s)
     s = re.sub(r"(?<!\s)(?<!미)완$", " 완", s)
+
+    # ── 2차: 의존명사 규칙 ───────────────────────────────────────────
+    # N만에 → N 만에 (10년만에, 1000년만에, 3일만에)
+    s = re.sub(r'(\d+(?:년|일|월|주|시간|분|초)?)만에', r'\1 만에', s)
+
+    # N분의M → N 분의 M (70억분의1 → 70억 분의 1)
+    # \s* 허용: clean_name의 한글+숫자 공백 삽입 후 "분의 1" 형태도 처리
+    s = re.sub(r'(\d+(?:억|조|천|백|만)?)분의\s*(\d+)', r'\1 분의 \2', s)
+
+    # 할수있다/없다 → 할 수 있다/없다
+    s = re.sub(r'([가-힣])수\s*(있|없)', r'\1 수 \2', s)
+
+    # 산다는것 → 산다는 것
+    s = re.sub(r'([가-힣])것(?![가-힣])', r'\1 것', s)
+
+    # ── 3차: 부사 규칙 ───────────────────────────────────────────────
+    _ADVERBS = r'(?:너무|계속|정말|매우|아직|항상|드디어|갑자기|천천히|조금|많이|다시)'
+    s = re.sub(rf'({_ADVERBS})([가-힣])', r'\1 \2', s)
+
+    # ── 4차: 속/중/내/간 의존명사 ───────────────────────────────────
+    # 뒤에 복합어 접미(속도·속편·중요·중간·내부·내용 등)가 오면 분리 금지
+    s = re.sub(r'([가-힣]{2,})속(?!도|편|성|내|임|셈|담|말|력|이)', r'\1 속', s)
+    s = re.sub(r'([가-힣]{2,})중(?!요|간|앙|심|단|학|고|반|독)', r'\1 중', s)
+    s = re.sub(r'([가-힣]{2,})내(?!부|용|면|과|역|심|기)', r'\1 내', s)
+    s = re.sub(r'([가-힣]{2,})간(?!호|단|식|격|부|파)', r'\1 간', s)
+
+    # ── 5차: 관형사 + 명사 ───────────────────────────────────────────
+    _ADJ = r'(?:검은|붉은|강한|약한|새로운|낡은|큰|작은|긴|짧은|밝은|어두운|차가운|뜨거운)'
+    s = re.sub(rf'({_ADJ})([가-힣])', r'\1 \2', s)
+
+    # ── 6차: 숫자+원 (100억원 → 100억 원) ──────────────────────────
+    s = re.sub(r'(\d+(?:억|조|천|백|만)?)원(?![가-힣])', r'\1 원', s)
+
+    # ── 7차: 직업 사전 — 앞에 수식어(2자↑)가 붙은 경우 공백 추가 ──
+    def _job_repl(m, _job=""):
+        full = m.group(0)
+        if full in _COMPOUND_SET:
+            return full
+        for cw in _COMPOUND_SET:
+            if cw.endswith(_job) and full.endswith(cw):
+                return full
+        return m.group(1) + ' ' + m.group(2)
+
+    for _job in _JOB_WORDS:
+        pat = rf'([가-힣]{{2,}})({re.escape(_job)})(?![가-힣])'
+        s = re.sub(pat, lambda m, j=_job: _job_repl(m, _job=j), s)
+
+    s = re.sub(r' +', ' ', s).strip()
     return s
 
-# EXE 환경에서는 Kiwi 로딩 생략
-if getattr(sys, 'frozen', False):
-    def fix_spacing(text):
-        return _apply_rules(text)
-else:
-    try:
-        from kiwipiepy import Kiwi as _Kiwi
-        _kiwi = _Kiwi()
 
-        def fix_spacing(text):
-            s = _apply_rules(text)
-            if re.search(r"[가-힣]{4,}", s):
-                if s not in _spacing_cache:
-                    _spacing_cache[s] = _kiwi.space(s)
-                spaced = _spacing_cache[s]
-                for word in COMPOUND_WORDS:
-                    if word in s and word not in spaced:
-                        for i in range(1, len(word)):
-                            pat = re.escape(word[:i]) + r"\s+" + re.escape(word[i:])
-                            spaced = re.sub(pat, word, spaced)
-                s = spaced
-                s = _apply_rules(s)
-            return s
-
-    except Exception:
-        def fix_spacing(text):
-            return _apply_rules(text)
+def fix_spacing(text):
+    """파일명 띄어쓰기 교정 (사전+규칙 기반, Kiwi 불사용)"""
+    return _apply_rules(text)
 
 
 
