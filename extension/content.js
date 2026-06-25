@@ -777,20 +777,52 @@
         .then(r => r.json())
         .then(data => {
           resultDiv.innerHTML = "";
+          resultDiv.style.paddingLeft = "0";
           if (data.no_search) { resultDiv.textContent = "검색 불가"; return; }
           const exact = data.exact || [], partial = data.partial || [];
-          if (!exact.length && !partial.length) { resultDiv.textContent = "미보유"; return; }
+          if (!exact.length && !partial.length) {
+            const none = document.createElement("div");
+            Object.assign(none.style, { color: "#6c7086", fontSize: "10px", padding: "2px 0 2px 16px" });
+            none.textContent = "미보유";
+            resultDiv.appendChild(none);
+            return;
+          }
+          const makeName = (item, isExact) => {
+            const name = typeof item === "object" ? item.name : item;
+            const size = typeof item === "object" ? item.size : null;
+            const row = document.createElement("div");
+            Object.assign(row.style, {
+              display: "flex", alignItems: "center", gap: "5px",
+              padding: "2px 4px 2px 16px", fontSize: "10px",
+              background: isExact ? "rgba(166,227,161,0.15)" : "rgba(249,226,175,0.08)",
+              borderLeft: `2px solid ${isExact ? "#a6e3a1" : "#f9e2af"}`,
+              marginBottom: "1px", borderRadius: "0 3px 3px 0",
+            });
+            const lbl = document.createElement("span");
+            Object.assign(lbl.style, { flex: "1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: isExact ? "#a6e3a1" : "#f9e2af" });
+            lbl.textContent = name;
+            row.appendChild(lbl);
+            if (size) {
+              const sz = document.createElement("span");
+              Object.assign(sz.style, { flexShrink: "0", color: "#6c7086" });
+              sz.textContent = size + "MB";
+              row.appendChild(sz);
+            }
+            return row;
+          };
           if (exact.length) {
-            const ok = document.createElement("span");
-            ok.style.color = "#a6e3a1";
-            ok.textContent = `✓ ${exact.length}개 보유`;
-            resultDiv.appendChild(ok);
+            const hd = document.createElement("div");
+            Object.assign(hd.style, { fontSize: "10px", color: "#a6e3a1", fontWeight: "700", padding: "2px 0 1px 16px" });
+            hd.textContent = `✓ 정확 ${exact.length}개`;
+            resultDiv.appendChild(hd);
+            exact.forEach(it => resultDiv.appendChild(makeName(it, true)));
           }
           if (partial.length) {
-            const par = document.createElement("span");
-            Object.assign(par.style, { color: "#f9e2af", marginLeft: "8px" });
-            par.textContent = `~ ${partial.length}개 유사`;
-            resultDiv.appendChild(par);
+            const hd = document.createElement("div");
+            Object.assign(hd.style, { fontSize: "10px", color: "#f9e2af", fontWeight: "700", padding: "3px 0 1px 16px" });
+            hd.textContent = `~ 유사 ${partial.length}개`;
+            resultDiv.appendChild(hd);
+            partial.forEach(it => resultDiv.appendChild(makeName(it, false)));
           }
         })
         .catch(() => { resultDiv.textContent = "서버 오류"; resultDiv.style.color = "#f38ba8"; });
@@ -851,10 +883,24 @@
     el.appendChild(sep);
 
     if (voteBtn) {
+      // 현재 추천 수 읽기
+      const countEl = voteBtn.querySelector('.count,.num,.vote-count,em,strong') ||
+                      voteBtn.parentElement?.querySelector('.count,.num,.vote-count,em') ||
+                      (voteBtn.tagName === 'A' ? voteBtn : null);
+      const rawCount = countEl ? countEl.textContent.replace(/[^0-9]/g, '') : '';
+      const curCount = rawCount ? parseInt(rawCount, 10) : null;
+
       const vb = document.createElement("button");
-      vb.textContent = "👍 추천";
+      const countLabel = curCount !== null ? ` (${curCount} → ${curCount + 1})` : '';
+      vb.textContent = `👍 추천${countLabel}`;
       Object.assign(vb.style, { padding: "4px 12px", background: "#a6e3a1", color: "#1e1e2e", border: "none", borderRadius: "4px", fontSize: "11px", fontWeight: "700", cursor: "pointer", marginBottom: "6px" });
-      vb.addEventListener("click", (e) => { e.stopPropagation(); voteBtn.click(); vb.textContent = "✓ 추천됨"; vb.disabled = true; });
+      vb.addEventListener("click", (e) => {
+        e.stopPropagation();
+        voteBtn.click();
+        const next = curCount !== null ? curCount + 1 : null;
+        vb.textContent = next !== null ? `✓ 추천됨 (${next})` : "✓ 추천됨";
+        vb.disabled = true;
+      });
       el.appendChild(vb);
     }
 
