@@ -379,7 +379,7 @@ def score_filename(query_words, filename):
     # 화수 패턴 이후 제거 후 순수 제목으로만 비교
     name_no_ext = join_single_syllables(strip_episode(Path(filename).stem.lower()))
     file_words = {
-        w for w in re.findall(r"[가-힣a-z]+", name_no_ext)
+        w for w in re.findall(r"[가-힣]+|[a-z]+", name_no_ext)
         if len(w) >= 2 and w not in EXT_STOPWORDS
     }
 
@@ -636,7 +636,7 @@ def search():
     query_clean = clean_name(query_clean)
     query_clean = strip_episode(query_clean)  # 화수 패턴 이후 제거
     query_words = {
-        w for w in re.findall(r"[가-힣a-z]+", query_clean.lower())
+        w for w in re.findall(r"[가-힣]+|[a-z]+", query_clean.lower())
         if len(w) >= min_word_len and w not in EXT_STOPWORDS
     }
     if not query_words:
@@ -661,11 +661,11 @@ def search():
 
         # exact 판정: 원본 단어 OR clean 단어 중 하나라도 쿼리 단어 포함
         raw_words = {
-            w for w in re.findall(r"[가-힣a-z]+", join_single_syllables(Path(f).stem.lower()))
+            w for w in re.findall(r"[가-힣]+|[a-z]+", join_single_syllables(Path(f).stem.lower()))
             if len(w) >= 2 and w not in EXT_STOPWORDS
         }
         clean_words = {
-            w for w in re.findall(r"[가-힣a-z]+", join_single_syllables(cstem.lower()))
+            w for w in re.findall(r"[가-힣]+|[a-z]+", join_single_syllables(cstem.lower()))
             if len(w) >= 2 and w not in EXT_STOPWORDS
         } if cstem else set()
 
@@ -696,7 +696,9 @@ def search():
 
     return jsonify({
         "exact": [to_item(f) for _, f in exact[:max_results]],
-        "partial": [to_item(f) for _, f in partial[:max_results]],
+        "exact_total": len(exact),
+        "partial": [to_item(f) for _, f in partial[:100]],
+        "partial_total": len(partial),
     })
 
 

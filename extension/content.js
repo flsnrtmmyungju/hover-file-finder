@@ -816,11 +816,42 @@
             exact.forEach(it => panel.appendChild(makeFileRow(it, true)));
           }
           if (partial.length) {
+            const partialTotal = data.partial_total ?? partial.length;
+            const PAGE = 10;
+            let shownP = 0;
+
             const hd = document.createElement("div");
             Object.assign(hd.style, { fontSize: "10px", color: "#f9e2af", fontWeight: "700", padding: "3px 0 1px 18px" });
-            hd.textContent = `~ 유사 ${partial.length}개`;
+            const updateHd = () => {
+              hd.textContent = `~ 유사 ${shownP}개` + (partialTotal > shownP ? ` / 전체 ${partialTotal}개` : "");
+            };
             panel.appendChild(hd);
-            partial.forEach(it => panel.appendChild(makeFileRow(it, false)));
+
+            const moreBtn = document.createElement("button");
+            Object.assign(moreBtn.style, {
+              display: "block", margin: "4px 0 2px 18px", padding: "2px 10px",
+              background: "#313244", color: "#f9e2af", border: "1px solid #45475a",
+              borderRadius: "4px", fontSize: "10px", cursor: "pointer",
+            });
+            const updateMoreBtn = () => {
+              const left = partial.length - shownP;
+              moreBtn.textContent = `${Math.min(PAGE, left)}개 더 (${left}개 남음)`;
+            };
+            moreBtn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              const batch = partial.slice(shownP, shownP + PAGE);
+              batch.forEach(it => moreBtn.before(makeFileRow(it, false)));
+              shownP += batch.length;
+              updateHd();
+              if (shownP >= partial.length) moreBtn.remove();
+              else updateMoreBtn();
+            });
+
+            const first = partial.slice(0, PAGE);
+            first.forEach(it => panel.appendChild(makeFileRow(it, false)));
+            shownP = first.length;
+            updateHd();
+            if (partial.length > PAGE) { updateMoreBtn(); panel.appendChild(moreBtn); }
           }
           if (!exact.length && !partial.length) {
             const none = document.createElement("div");
