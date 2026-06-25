@@ -15,6 +15,10 @@
   let mouseY = 0;
   let dedupActive = false;
   let overlayHovered = false;
+  let hoveredAttachItem = null;
+  let _cbarRestoreFn = null;
+  let _suppressHashNav = false;
+  let _movedDlEls = [];
 
   function buildOverlay() {
     const el = document.createElement("div");
@@ -274,6 +278,31 @@
       setTimeout(() => { dedupBtn.textContent = "중복삭제"; dedupBtn.disabled = false; }, 3000);
     });
     wrap.appendChild(dedupBtn);
+
+    // 뷰어보기 버튼
+    const viewerBtn = document.createElement("button");
+    viewerBtn.textContent = "뷰어보기";
+    Object.assign(viewerBtn.style, {
+      flex: "1", padding: "5px 0", background: "#cba6f7",
+      color: "#1e1e2e", border: "none", borderRadius: "5px",
+      fontWeight: "700", fontSize: "11px", cursor: "pointer",
+    });
+    viewerBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      viewerBtn.textContent = "열기 중...";
+      viewerBtn.disabled = true;
+      try {
+        const res = await fetch("http://localhost:7823/history");
+        const hist = await res.json();
+        if (hist.length > 0) {
+          openViewerWindow(hist[0].filename);
+        } else {
+          alert("뷰어 기록이 없습니다.");
+        }
+      } catch { alert("서버 오류"); }
+      setTimeout(() => { viewerBtn.textContent = "뷰어보기"; viewerBtn.disabled = false; }, 2000);
+    });
+    wrap.appendChild(viewerBtn);
 
     wrap.appendChild(makeActionBtn(
       "압축풀기", "#a6e3a1",
@@ -566,6 +595,294 @@
     el.scrollTop = 0;
   }
 
+  // ── toki.org 첨부파일 헬퍼 ───────────────────────────────────────
+  function closestAttachItem(target) {
+    return target.closest(".post-attach-item") || target.closest(".theme-board-attach-item") || null;
+  }
+
+  function getItemInfo(item) {
+    const themeNameEl = item.querySelector(".theme-board-attach-name");
+    if (themeNameEl) {
+      const rawName = (themeNameEl.getAttribute("title") || themeNameEl.textContent).normalize('NFC').replace(/^[^\w가-힣\[（(]+/, '').trim();
+      const dlEl = item.querySelector("button[data-theme-attach-download]") || null;
+      return { rawName, dlEl };
+    }
+    const nameEl = item.querySelector(".post-attach-name");
+    const rawName = nameEl ? nameEl.textContent.normalize('NFC').replace(/^[^\w가-힣\[（(]+/, '').trim() : '';
+    const dlEl = item.querySelector('button[title*="다운로드"]:not([title*="선택"]):not([disabled])') ||
+                 item.querySelector('.post-attach-actions button:last-child') || null;
+    return { rawName, dlEl };
+  }
+
+  function getPageAttachItems() {
+    const themeList = document.querySelector(".theme-board-attach-list");
+    if (themeList) {
+      return [...themeList.querySelectorAll(".theme-board-attach-item")].map(li => {
+        const nameEl = li.querySelector(".theme-board-attach-name");
+        const rawName = (nameEl?.getAttribute("title") || nameEl?.textContent || '').normalize('NFC').replace(/^[^\w가-힣\[（(]+/, '').trim();
+        const size = li.querySelector(".theme-board-attach-sub")?.textContent.trim() || null;
+        const dlEl = li.querySelector("button[data-theme-attach-download]") || null;
+        return { rawName, size, dlEl };
+      });
+    }
+    const postList = document.querySelector(".post-attach-list");
+    if (postList) {
+      return [...postList.querySelectorAll(".post-attach-item")].map(li => {
+        const nameEl = li.querySelector(".post-attach-name");
+        const rawName = nameEl ? nameEl.textContent.normalize('NFC').replace(/^[^\w가-힣\[（(]+/, '').trim() : '';
+        const size = li.querySelector(".post-attach-size")?.textContent.trim() || null;
+        const dlEl = li.querySelector('button[title*="다운로드"]:not([title*="선택"]):not([disabled])') ||
+                     li.querySelector('.post-attach-actions button:last-child') || null;
+        return { rawName, size, dlEl };
+      });
+    }
+    return [];
+  }
+
+  function findDownloadEl(rawName) {
+    const needle = rawName.normalize('NFC').replace(/^[^\w가-힣\[]+/, '').slice(0, 12);
+    if (!needle) return null;
+    for (const item of [...document.querySelectorAll('.post-attach-item,.theme-board-attach-item')]) {
+      const nameEl = item.querySelector('.post-attach-name') || item.querySelector('.theme-board-attach-name');
+      if ((nameEl?.textContent || '').normalize('NFC').includes(needle)) {
+        return item.querySelector('button[title*="다운로드"]:not([title*="선택"])') ||
+               item.querySelector('button[data-theme-attach-download]') ||
+               item.querySelector('.post-attach-actions button:last-child') || null;
+      }
+    }
+    return null;
+  }
+
+  function clearMulti() {
+    _movedDlEls.forEach(({ el: vel, parent, next }) => {
+      try {
+        if (parent && document.body.contains(parent))
+          next && parent.contains(next) ? parent.insertBefore(vel, next) : parent.appendChild(vel);
+      } catch {}
+    });
+    _movedDlEls = [];
+    if (_cbarRestoreFn) { _cbarRestoreFn(); _cbarRestoreFn = null; }
+    _suppressHashNav = false;
+  }
+
+  function openViewerWindow(filename) {
+    window.postMessage({ type: 'open-viewer', filename }, '*');
+  }
+
+  // ── 페이지 전체 소설 목록 표시 (toki.org) ───────────────────────
+  function showMultiple(items) {
+    clearMulti();
+    const el = getOverlay();
+    el.innerHTML = "";
+    Object.assign(el.style, { width: "380px", maxHeight: "380px" });
+
+    el.appendChild(makeTopButtons());
+
+    const hdrRow = document.createElement("div");
+    Object.assign(hdrRow.style, { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" });
+    const hdr = document.createElement("div");
+    Object.assign(hdr.style, { color: "#89b4fa", fontWeight: "700", fontSize: "11px" });
+    hdr.textContent = `📋 페이지 소설 ${items.length}개`;
+    const closeBtn = document.createElement("span");
+    closeBtn.textContent = "✕";
+    Object.assign(closeBtn.style, { cursor: "pointer", color: "#6c7086", fontSize: "14px" });
+    closeBtn.addEventListener("click", (e) => { e.stopPropagation(); hide(); });
+    hdrRow.appendChild(hdr); hdrRow.appendChild(closeBtn);
+    el.appendChild(hdrRow);
+
+    const listDiv = document.createElement("div");
+    Object.assign(listDiv.style, { maxHeight: "280px", overflowY: "auto" });
+
+    const _dlBtnStyle = {
+      fontSize: "10px", padding: "0 10px", flexShrink: "0",
+      height: "22px", lineHeight: "22px",
+      background: "linear-gradient(135deg, #89b4fa, #74c7ec)",
+      color: "#1e1e2e", border: "none", borderRadius: "4px",
+      fontWeight: "700", cursor: "pointer", boxSizing: "border-box",
+    };
+
+    items.forEach(({ text: searchText, displayName, size, dlEl, siteIndex }) => {
+      const section = document.createElement("div");
+      Object.assign(section.style, { borderTop: "1px solid #313244", paddingTop: "5px", marginBottom: "3px" });
+
+      const topRow = document.createElement("div");
+      Object.assign(topRow.style, { display: "flex", alignItems: "center", gap: "5px", marginBottom: "2px" });
+
+      const idx = document.createElement("span");
+      idx.textContent = `#${siteIndex}`;
+      Object.assign(idx.style, { flexShrink: "0", color: "#6c7086", fontSize: "10px", fontWeight: "700" });
+
+      const nm = document.createElement("span");
+      Object.assign(nm.style, { flex: "1", fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#cdd6f4" });
+      nm.textContent = displayName || searchText;
+
+      topRow.appendChild(idx);
+      topRow.appendChild(nm);
+
+      if (size) {
+        const sz = document.createElement("span");
+        Object.assign(sz.style, { flexShrink: "0", fontSize: "10px", color: "#6c7086" });
+        sz.textContent = size;
+        topRow.appendChild(sz);
+      }
+
+      // 다운로드 버튼
+      const rawName = displayName || searchText;
+      const dl = dlEl || findDownloadEl(rawName);
+      if (dl) {
+        if (dl.hasAttribute('data-theme-attach-download')) {
+          const proxy = document.createElement("button");
+          proxy.textContent = "다운로드";
+          Object.assign(proxy.style, _dlBtnStyle);
+          proxy.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            const wrap = dl.closest('[data-theme-attachments]');
+            const isPaid = wrap?.getAttribute('data-is-paid') === '1' && wrap?.getAttribute('data-free') !== '1';
+            if (isPaid || !wrap) { dl.click(); return; }
+            const postId = wrap.getAttribute('data-post-id') || '';
+            const idx2 = dl.getAttribute('data-attach-index') || '0';
+            const fname = dl.getAttribute('data-file-name') || 'download';
+            const url = `/api/board/file?p=${encodeURIComponent(postId)}&i=${encodeURIComponent(idx2)}`;
+            proxy.disabled = true; proxy.textContent = '확인중';
+            try {
+              const chk = await fetch(url + '&check=1', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+              if (!chk.ok) { const j = await chk.json().catch(() => null); throw new Error(j?.error || '다운로드 불가'); }
+              const a = document.createElement('a'); a.href = url; a.download = fname; a.rel = 'noreferrer';
+              document.body.appendChild(a); a.click(); a.remove();
+              proxy.textContent = '완료'; setTimeout(() => { proxy.textContent = '다운로드'; proxy.disabled = false; }, 2000);
+            } catch (err) {
+              proxy.textContent = (err.message || '실패').slice(0, 8);
+              setTimeout(() => { proxy.textContent = '다운로드'; proxy.disabled = false; }, 3000);
+            }
+          });
+          topRow.appendChild(proxy);
+        } else {
+          const dlParent = dl.parentElement;
+          const dlNext = dl.nextSibling;
+          _movedDlEls.push({ el: dl, parent: dlParent, next: dlNext });
+          Object.assign(dl.style, _dlBtnStyle);
+          topRow.appendChild(dl);
+        }
+      }
+
+      section.appendChild(topRow);
+
+      // 서버 검색 결과
+      const resultDiv = document.createElement("div");
+      Object.assign(resultDiv.style, { fontSize: "10px", color: "#6c7086", paddingLeft: "16px", marginBottom: "2px" });
+      resultDiv.textContent = "검색 중...";
+      section.appendChild(resultDiv);
+
+      fetch(`${SERVER}?text=${encodeURIComponent(searchText)}`)
+        .then(r => r.json())
+        .then(data => {
+          resultDiv.innerHTML = "";
+          if (data.no_search) { resultDiv.textContent = "검색 불가"; return; }
+          const exact = data.exact || [], partial = data.partial || [];
+          if (!exact.length && !partial.length) { resultDiv.textContent = "미보유"; return; }
+          if (exact.length) {
+            const ok = document.createElement("span");
+            ok.style.color = "#a6e3a1";
+            ok.textContent = `✓ ${exact.length}개 보유`;
+            resultDiv.appendChild(ok);
+          }
+          if (partial.length) {
+            const par = document.createElement("span");
+            Object.assign(par.style, { color: "#f9e2af", marginLeft: "8px" });
+            par.textContent = `~ ${partial.length}개 유사`;
+            resultDiv.appendChild(par);
+          }
+        })
+        .catch(() => { resultDiv.textContent = "서버 오류"; resultDiv.style.color = "#f38ba8"; });
+
+      listDiv.appendChild(section);
+    });
+
+    el.appendChild(listDiv);
+
+    const GAP = 12;
+    el.style.left = mouseX + "px";
+    el.style.top = (mouseY + GAP) + "px";
+    el.style.setProperty("display", "block", "important");
+    el.style.setProperty("visibility", "visible", "important");
+    el.style.setProperty("opacity", "1", "important");
+    el.scrollTop = 0;
+    clearTimeout(hideTimer);
+
+    requestAnimationFrame(() => {
+      const rect = el.getBoundingClientRect();
+      let left = parseFloat(el.style.left), top = parseFloat(el.style.top);
+      if (rect.right  > window.innerWidth  - 8) left = window.innerWidth  - rect.width  - 8;
+      if (rect.bottom > window.innerHeight - 8) top  = mouseY - rect.height - 4;
+      if (left < 4) left = 4;
+      if (top  < 4) top  = 4;
+      el.style.left = left + "px";
+      el.style.top  = top  + "px";
+    });
+  }
+
+  // ── 댓글 + 추천 바 ──────────────────────────────────────────────
+  function buildCommentBar() {
+    const textarea  = document.querySelector('form.comment-form textarea') ||
+                      document.querySelector('.theme-board-comment-form textarea') ||
+                      document.querySelector('textarea[placeholder*="댓글"]');
+    const submitBtn = document.querySelector('form.comment-form button[type="submit"]') ||
+                      document.querySelector('.comment-form-foot button[type="submit"]') ||
+                      document.querySelector('.theme-board-comment-form-foot button[type="submit"]');
+    const voteBtn   = document.querySelector('.post-vote.post-vote--up') ||
+                      document.querySelector('.post-vote-wrap button') ||
+                      document.querySelector('a.view-good[data-board-post-vote]');
+
+    if (!textarea && !voteBtn) return;
+
+    const el = getOverlay();
+
+    const saved = voteBtn ? [{ el: voteBtn, parent: voteBtn.parentElement, next: voteBtn.nextSibling, style: voteBtn.getAttribute("style") || "" }] : [];
+    if (voteBtn && voteBtn.tagName === 'A' && voteBtn.getAttribute('href') === '#') _suppressHashNav = true;
+    _cbarRestoreFn = () => {
+      _suppressHashNav = false;
+      saved.forEach(({ el: vel, parent, next, style }) => {
+        try { vel.setAttribute("style", style); if (parent && document.body.contains(parent)) next && parent.contains(next) ? parent.insertBefore(vel, next) : parent.appendChild(vel); } catch {}
+      });
+    };
+
+    const sep = document.createElement("div");
+    Object.assign(sep.style, { borderTop: "1px solid #45475a", margin: "8px 0 6px" });
+    el.appendChild(sep);
+
+    if (voteBtn) {
+      const vb = document.createElement("button");
+      vb.textContent = "👍 추천";
+      Object.assign(vb.style, { padding: "4px 12px", background: "#a6e3a1", color: "#1e1e2e", border: "none", borderRadius: "4px", fontSize: "11px", fontWeight: "700", cursor: "pointer", marginBottom: "6px" });
+      vb.addEventListener("click", (e) => { e.stopPropagation(); voteBtn.click(); vb.textContent = "✓ 추천됨"; vb.disabled = true; });
+      el.appendChild(vb);
+    }
+
+    if (textarea && submitBtn) {
+      const ta = document.createElement("textarea");
+      Object.assign(ta.style, { width: "100%", height: "56px", background: "#313244", color: "#cdd6f4", border: "1px solid #45475a", borderRadius: "4px", fontSize: "11px", padding: "5px 8px", boxSizing: "border-box", resize: "none", outline: "none", display: "block" });
+      ta.placeholder = "댓글 입력...";
+      ta.addEventListener("click", (e) => e.stopPropagation());
+      ta.addEventListener("keydown", (e) => e.stopPropagation());
+
+      const sb = document.createElement("button");
+      sb.textContent = "댓글 등록";
+      Object.assign(sb.style, { width: "100%", marginTop: "4px", padding: "5px 0", background: "#89b4fa", color: "#1e1e2e", border: "none", borderRadius: "4px", fontSize: "11px", fontWeight: "700", cursor: "pointer" });
+      sb.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const txt = ta.value.trim();
+        if (!txt) return;
+        textarea.value = txt;
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        submitBtn.click();
+        sb.textContent = "✓ 등록"; sb.disabled = true;
+      });
+
+      el.appendChild(ta);
+      el.appendChild(sb);
+    }
+  }
+
   function show(exact, partial) {
     const el = getOverlay();
     el.innerHTML = "";
@@ -645,6 +962,7 @@
     clearTimeout(hideTimer);
     if (overlay) overlay.style.setProperty("display", "none", "important");
     lastText = "";
+    clearMulti();
   }
 
   function extractText(el) {
@@ -688,16 +1006,48 @@
     }
   }
 
-  // 마우스 위치 추적
+  // 마우스 위치 추적 + 호버 아이템 추적
   document.addEventListener("mousemove", (e) => {
     mouseX = e.clientX;
     mouseY = e.clientY;
+    hoveredAttachItem = closestAttachItem(e.target);
   }, { passive: true });
 
-  // 텍스트 우클릭 시 검색
+  // 우클릭 시 검색
   document.addEventListener("contextmenu", (e) => {
     if (dedupActive) return;
     if (overlay?.contains(e.target)) return;
+
+    // attach-item 위에서 우클릭 → 단일 파일 검색
+    const item = hoveredAttachItem;
+    if (item) {
+      const { rawName, dlEl } = getItemInfo(item);
+      const searchText = rawName.replace(/\.[^.]+$/, '').trim();
+      if (searchText.length >= MIN_TEXT_LEN) {
+        clearMulti();
+        e.preventDefault();
+        lastText = searchText;
+        clearTimeout(timer);
+        fetchAndShow(searchText);
+        return;
+      }
+    }
+
+    // 페이지에 첨부파일 목록이 있으면 전체 자동 읽기
+    const pageAttachItems = getPageAttachItems();
+    if (pageAttachItems.length > 0) {
+      const items = pageAttachItems.map(({ rawName, size, dlEl }, i) => {
+        const searchText = rawName.replace(/\.[^.]+$/, '').trim();
+        return searchText.length >= MIN_TEXT_LEN ? { text: searchText, displayName: rawName, size, dlEl, siteIndex: i + 1 } : null;
+      }).filter(Boolean);
+      if (items.length > 0) {
+        e.preventDefault();
+        lastText = "__multi__";
+        showMultiple(items);
+        buildCommentBar();
+        return;
+      }
+    }
 
     const text = extractText(e.target);
     if (!text || text.length < MIN_TEXT_LEN) {
@@ -705,7 +1055,7 @@
       return;
     }
 
-    e.preventDefault(); // 브라우저 기본 우클릭 메뉴 차단
+    e.preventDefault();
 
     // 같은 텍스트 재우클릭 → 닫기
     if (text === lastText) {
@@ -718,8 +1068,26 @@
     fetchAndShow(text);
   });
 
-  // 팝업 바깥 좌클릭 시 닫기
+  // 중간 클릭 → attach-item 단일 검색
+  document.addEventListener("auxclick", (e) => {
+    if (e.button !== 1) return;
+    if (overlay?.contains(e.target)) return;
+    const item = closestAttachItem(e.target);
+    if (!item) return;
+    const { rawName } = getItemInfo(item);
+    const searchText = rawName.replace(/\.[^.]+$/, '').trim();
+    if (searchText.length < MIN_TEXT_LEN) return;
+    clearMulti();
+    e.preventDefault();
+    lastText = searchText;
+    fetchAndShow(searchText);
+  });
+
+  // a.view-good href="#" 스크롤 방지
   document.addEventListener("click", (e) => {
+    if (_suppressHashNav && e.target.matches('a[href="#"]')) {
+      e.preventDefault();
+    }
     if (!overlay?.contains(e.target)) hide();
   });
 })();
