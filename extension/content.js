@@ -19,6 +19,7 @@
   let _cbarRestoreFn = null;
   let _suppressHashNav = false;
   let _movedDlEls = [];
+  let _fetchController = null;
 
   function buildOverlay() {
     const el = document.createElement("div");
@@ -671,6 +672,9 @@
 
   // ── 페이지 전체 소설 목록 표시 (toki.org) ───────────────────────
   function showMultiple(items) {
+    _fetchController?.abort();
+    _fetchController = new AbortController();
+    const signal = _fetchController.signal;
     clearMulti();
     const el = getOverlay();
     el.innerHTML = "";
@@ -875,9 +879,10 @@
       listDiv.appendChild(section);
 
       // 개별 fetch → 결과 렌더
-      fetch(`${SERVER}?text=${encodeURIComponent(searchText)}`)
+      fetch(`${SERVER}?text=${encodeURIComponent(searchText)}`, { signal })
         .then(r => r.json())
         .then(data => {
+          if (signal.aborted) return;
           const exact = data.exact || [], partial = data.partial || [];
           const cat = exact.length > 0 ? "match" : partial.length > 0 ? "need" : "none";
 
@@ -979,7 +984,8 @@
             else topRow.appendChild(dlNewBadge);
           }
         })
-        .catch(() => {
+        .catch((err) => {
+          if (err.name === "AbortError") return;
           counts["none"].total++; counts["none"].shown++;
           section.dataset.cat = "none";
           section.style.display = "none" === activeTab ? "" : "none";
@@ -1180,6 +1186,8 @@
     if (overlay) overlay.style.setProperty("display", "none", "important");
     lastText = "";
     clearMulti();
+    _fetchController?.abort();
+    _fetchController = null;
   }
 
   function extractText(el) {
