@@ -152,128 +152,140 @@ _JOB_WORDS = [
 ]
 _COMPOUND_SET = frozenset(COMPOUND_WORDS)
 
+# ── 모듈 로드 시 패턴 미리 컴파일 (호출마다 re.compile 방지) ──────────
+_COMPOUND_REPAIR = []
+for _w in COMPOUND_WORDS:
+    _COMPOUND_REPAIR.append((_w, [
+        re.compile(re.escape(_w[:i]) + r'\s+' + re.escape(_w[i:]))
+        for i in range(1, len(_w))
+    ]))
+
+_PROPER_NOUN_REPAIR = []
+for _n in PROPER_NOUNS:
+    _PROPER_NOUN_REPAIR.append((_n, [
+        re.compile(re.escape(_n[:i]) + r'\s+' + re.escape(_n[i:]))
+        for i in range(1, len(_n))
+    ]))
+
+_JOB_PATTERNS = [
+    (job, re.compile(rf'([가-힣]{{2,}})({re.escape(job)})(?![가-힣])'))
+    for job in _JOB_WORDS
+]
+
+_RE_GRADE   = re.compile(r'([A-Za-z0-9가-힣])\s+급(?![가-힣])')
+_RE_PERCENT = re.compile(r'(\S)\s+%')
+_RE_HOICA   = re.compile(r'(\d+회)\s+차(?![가-힣])')
+_RE_MIWAN1  = re.compile(r'미\s+완')
+_RE_MIWAN2  = re.compile(r'(?<!\s)미완$')
+_RE_WAN     = re.compile(r'(?<!\s)(?<!미)완$')
+_RE_MANE    = re.compile(r'(\d+(?:년|일|월|주|시간|분|초)?)만에')
+_RE_BUNUI   = re.compile(r'(\d+(?:억|조|천|백|만)?)분의\s*(\d+)')
+_RE_NUM_KOR = re.compile(r'(\d)([가-힣]{2,})')
+_RE_SU      = re.compile(r'([가-힣])수\s*(있|없)')
+_RE_GEOT    = re.compile(r'([가-힣])것(?![가-힣])')
+_RE_PPUN    = re.compile(r'([가-힣]{2,})뿐(?!이|인|만|도|이다|이야)')
+_RE_JI      = re.compile(r'([가-힣]{2,}(?:온|간|된|난|한|본|쓴|먹은|떠난))지(?!금|역|방|식|구|도|부|하|인|원)')
+_RE_MANKEUM = re.compile(r'([가-힣]{2,})만큼')
+_RE_DAERO   = re.compile(r'([가-힣]{2,})대로(?![가-힣])')
+_RE_DEUNG   = re.compile(r'([가-힣]{2,})등(?!급|록|장|수|지|화|자|용|반|원)')
+_RE_ADV     = re.compile(
+    r'(?:너무|계속|정말|매우|아직|항상|드디어|갑자기|천천히|조금|많이|다시'
+    r'|이미|이제|결국|혼자|몰래|잠시|홀로|마침내|비로소|여전히|줄곧|오히려'
+    r'|그냥|그저|슬쩍|억지로|가만히|가득|더욱|점점|날로|부쩍|새삼|아무래도'
+    r'|어쩌다|어차피|어쩔수없이|하필|괜히|엉뚱하게|무심코|문득)([가-힣])'
+)
+_RE_SOK  = re.compile(r'([가-힣]{2,})속(?!도|편|성|내|임|셈|담|말|력|이)')
+_RE_JUNG = re.compile(r'([가-힣]{2,})중(?!요|간|앙|심|단|학|고|반|독)')
+_RE_NAE  = re.compile(r'([가-힣]{2,})내(?!부|용|면|과|역|심|기)')
+_RE_GAN  = re.compile(r'([가-힣]{2,})간(?!호|단|식|격|부|파)')
+_RE_WI   = re.compile(r'([가-힣]{2,})위(?!기|험|반|협|엄|치|해|장)')
+_RE_BAK  = re.compile(r'([가-힣]{2,})밖(?!에)')
+_RE_ADJ  = re.compile(
+    r'(검은|붉은|강한|약한|새로운|낡은|큰|작은|긴|짧은|밝은|어두운'
+    r'|차가운|뜨거운|깊은|얕은|넓은|좁은|높은|낮은|무거운|가벼운'
+    r'|빠른|느린|많은|적은|이상한|평범한|특별한|외로운|슬픈|기쁜'
+    r'|어린|늙은|젊은|예쁜|못생긴|착한|나쁜|이상한|다른|같은)([가-힣])'
+)
+_RE_WON    = re.compile(r'(\d+(?:억|조|천|백|만)?)원(?![가-힣])')
+_RE_SPACES = re.compile(r' +')
+
+
+def _job_repl(m, _job=""):
+    full = m.group(0)
+    if full in _COMPOUND_SET:
+        return full
+    for cw in _COMPOUND_SET:
+        if cw.endswith(_job) and full.endswith(cw):
+            return full
+    return m.group(1) + ' ' + m.group(2)
+
 
 def _apply_rules(s):
     """파일명 띄어쓰기 교정 — 사전+규칙 기반 (Kiwi 불사용)"""
 
-    # ── 1차: 복합어·고유명사 보호 (분리된 경우 재결합) ───────────────
-    for word in COMPOUND_WORDS:
+    # ── 1차: 복합어·고유명사 보호 ────────────────────────────────────
+    for word, pats in _COMPOUND_REPAIR:
         if word not in s:
-            for i in range(1, len(word)):
-                pat = re.escape(word[:i]) + r"\s+" + re.escape(word[i:])
-                if re.search(pat, s):
-                    s = re.sub(pat, word, s)
+            for pat in pats:
+                if pat.search(s):
+                    s = pat.sub(word, s)
                     break
-
-    for noun in PROPER_NOUNS:
+    for noun, pats in _PROPER_NOUN_REPAIR:
         if noun not in s:
-            for i in range(1, len(noun)):
-                pat = re.escape(noun[:i]) + r"\s+" + re.escape(noun[i:])
-                if re.search(pat, s):
-                    s = re.sub(pat, noun, s)
+            for pat in pats:
+                if pat.search(s):
+                    s = pat.sub(noun, s)
                     break
 
-    # 등급·접미사 붙이기
-    s = re.sub(r"([A-Za-z0-9가-힣])\s+급(?![가-힣])", r"\1급", s)
-    s = re.sub(r"(\S)\s+%", r"\1%", s)
-    s = re.sub(r"(\d+회)\s+차(?![가-힣])", r"\1차", s)
+    s = _RE_GRADE.sub(r'\1급', s)
+    s = _RE_PERCENT.sub(r'\1%', s)
+    s = _RE_HOICA.sub(r'\1차', s)
+    s = _RE_MIWAN1.sub('미완', s)
+    s = _RE_MIWAN2.sub(' 미완', s)
+    s = _RE_WAN.sub(' 완', s)
 
-    # 미완/완 정리
-    s = re.sub(r"미\s+완", "미완", s)
-    s = re.sub(r"(?<!\s)미완$", " 미완", s)
-    s = re.sub(r"(?<!\s)(?<!미)완$", " 완", s)
+    # ── 2차: 의존명사 ────────────────────────────────────────────────
+    s = _RE_MANE.sub(r'\1 만에', s)
+    s = _RE_BUNUI.sub(r'\1 분의 \2', s)
+    s = _RE_NUM_KOR.sub(r'\1 \2', s)
+    s = _RE_SU.sub(r'\1 수 \2', s)
+    s = _RE_GEOT.sub(r'\1 것', s)
+    s = _RE_PPUN.sub(r'\1 뿐', s)
+    s = _RE_JI.sub(r'\1 지', s)
+    s = _RE_MANKEUM.sub(r'\1 만큼', s)
+    s = _RE_DAERO.sub(r'\1 대로', s)
+    s = _RE_DEUNG.sub(r'\1 등', s)
 
-    # ── 2차: 의존명사 규칙 ───────────────────────────────────────────
+    # ── 3차: 부사 ────────────────────────────────────────────────────
+    s = _RE_ADV.sub(lambda m: m.group(0)[:-len(m.group(1))] + ' ' + m.group(1), s)
 
-    # N만에 → N 만에 (10년만에, 1000년만에, 3일만에)
-    s = re.sub(r'(\d+(?:년|일|월|주|시간|분|초)?)만에', r'\1 만에', s)
+    # ── 4차: 위치 의존명사 ───────────────────────────────────────────
+    s = _RE_SOK.sub(r'\1 속', s)
+    s = _RE_JUNG.sub(r'\1 중', s)
+    s = _RE_NAE.sub(r'\1 내', s)
+    s = _RE_GAN.sub(r'\1 간', s)
+    s = _RE_WI.sub(r'\1 위', s)
+    s = _RE_BAK.sub(r'\1 밖', s)
 
-    # N분의M → N 분의 M (70억분의1 → 70억 분의 1)
-    # \s* 허용: clean_name의 한글+숫자 공백 삽입 후 "분의 1" 형태도 처리
-    s = re.sub(r'(\d+(?:억|조|천|백|만)?)분의\s*(\d+)', r'\1 분의 \2', s)
+    # ── 5차: 관형사 ──────────────────────────────────────────────────
+    s = _RE_ADJ.sub(r'\1 \2', s)
 
-    # 숫자 바로 뒤 2자+ 한글 → 공백 (1사나이 → 1 사나이, 화·권·편·장 등 단음절 단위는 제외)
-    s = re.sub(r'(\d)([가-힣]{2,})', r'\1 \2', s)
+    # ── 6차: 숫자+단위 ───────────────────────────────────────────────
+    s = _RE_WON.sub(r'\1 원', s)
 
-    # 수: 할수있다/없다 → 할 수 있다/없다
-    s = re.sub(r'([가-힣])수\s*(있|없)', r'\1 수 \2', s)
+    # ── 7차: 직업 사전 ───────────────────────────────────────────────
+    for _job, pat in _JOB_PATTERNS:
+        s = pat.sub(lambda m, j=_job: _job_repl(m, _job=j), s)
 
-    # 것: 산다는것 → 산다는 것 (뒤에 한글이 오면 합성어이므로 제외)
-    s = re.sub(r'([가-힣])것(?![가-힣])', r'\1 것', s)
-
-    # 뿐: 할뿐/일뿐 → 할 뿐 (용언 어미 뒤 의존명사; 보조사 나뿐이다와 구분)
-    # 앞이 받침 없는 어미(-ㄹ,-는,-ㄴ,-은,-을 등)이면 의존명사
-    s = re.sub(r'([가-힣]{2,})뿐(?!이|인|만|도|이다|이야)', r'\1 뿐', s)
-
-    # 지: 시간 경과 표현 (온지, 간지, 된지 → 온 지, 간 지, 된 지)
-    s = re.sub(r'([가-힣]{2,}(?:온|간|된|난|한|본|쓴|먹은|떠난))지(?!금|역|방|식|구|도|부|하|인|원)', r'\1 지', s)
-
-    # 만큼: 실력만큼, 노력만큼 → 실력 만큼, 노력 만큼
-    s = re.sub(r'([가-힣]{2,})만큼', r'\1 만큼', s)
-
-    # 대로: 약속대로, 규칙대로 → 약속 대로, 규칙 대로
-    # (체언 뒤 대로는 조사이므로 제외 어렵지만 명사 2자 이상 뒤에만 적용)
-    s = re.sub(r'([가-힣]{2,})대로(?![가-힣])', r'\1 대로', s)
-
-    # 등: 마법사등, 헌터등 → 마법사 등, 헌터 등 (열거)
-    # 등급·등록·등장·등수 같은 복합어는 제외
-    s = re.sub(r'([가-힣]{2,})등(?!급|록|장|수|지|화|자|용|반|원)', r'\1 등', s)
-
-    # ── 3차: 부사 규칙 ───────────────────────────────────────────────
-    _ADVERBS = (
-        r'(?:너무|계속|정말|매우|아직|항상|드디어|갑자기|천천히|조금|많이|다시'
-        r'|이미|이제|결국|혼자|몰래|잠시|홀로|마침내|비로소|여전히|줄곧|오히려'
-        r'|그냥|그저|슬쩍|억지로|가만히|가득|더욱|점점|날로|부쩍|새삼|아무래도'
-        r'|어쩌다|어차피|어쩔수없이|하필|괜히|엉뚱하게|무심코|문득)'
-    )
-    s = re.sub(rf'({_ADVERBS})([가-힣])', r'\1 \2', s)
-
-    # ── 4차: 속/중/내/간/위/밖/앞/뒤 위치 의존명사 ─────────────────
-    # 뒤에 복합어 접미(속도·속편·중요·중간·내부·내용 등)가 오면 분리 금지
-    s = re.sub(r'([가-힣]{2,})속(?!도|편|성|내|임|셈|담|말|력|이)', r'\1 속', s)
-    s = re.sub(r'([가-힣]{2,})중(?!요|간|앙|심|단|학|고|반|독)', r'\1 중', s)
-    s = re.sub(r'([가-힣]{2,})내(?!부|용|면|과|역|심|기)', r'\1 내', s)
-    s = re.sub(r'([가-힣]{2,})간(?!호|단|식|격|부|파)', r'\1 간', s)
-    s = re.sub(r'([가-힣]{2,})위(?!기|험|반|협|엄|치|해|장)', r'\1 위', s)
-    s = re.sub(r'([가-힣]{2,})밖(?!에)', r'\1 밖', s)
-
-    # ── 5차: 관형사 + 명사 ───────────────────────────────────────────
-    _ADJ = (
-        r'(?:검은|붉은|강한|약한|새로운|낡은|큰|작은|긴|짧은|밝은|어두운'
-        r'|차가운|뜨거운|깊은|얕은|넓은|좁은|높은|낮은|무거운|가벼운'
-        r'|빠른|느린|많은|적은|이상한|평범한|특별한|외로운|슬픈|기쁜'
-        r'|어린|늙은|젊은|예쁜|못생긴|착한|나쁜|이상한|다른|같은)'
-    )
-    s = re.sub(rf'({_ADJ})([가-힣])', r'\1 \2', s)
-
-    # ── 6차: 숫자 + 단위 ────────────────────────────────────────────
-    # 원 (100억원 → 100억 원)
-    s = re.sub(r'(\d+(?:억|조|천|백|만)?)원(?![가-힣])', r'\1 원', s)
-
-    # ── 7차: 직업 사전 — 앞에 수식어(2자↑)가 붙은 경우 공백 추가 ──
-    def _job_repl(m, _job=""):
-        full = m.group(0)
-        if full in _COMPOUND_SET:
-            return full
-        for cw in _COMPOUND_SET:
-            if cw.endswith(_job) and full.endswith(cw):
-                return full
-        return m.group(1) + ' ' + m.group(2)
-
-    for _job in _JOB_WORDS:
-        pat = rf'([가-힣]{{2,}})({re.escape(_job)})(?![가-힣])'
-        s = re.sub(pat, lambda m, j=_job: _job_repl(m, _job=j), s)
-
-    # ── 최종: 규칙 실행 후 쪼개진 복합어 복원 ────────────────────────
-    for word in COMPOUND_WORDS:
+    # ── 최종: 복합어 복원 ────────────────────────────────────────────
+    for word, pats in _COMPOUND_REPAIR:
         if word not in s:
-            for i in range(1, len(word)):
-                pat = re.escape(word[:i]) + r"\s+" + re.escape(word[i:])
-                if re.search(pat, s):
-                    s = re.sub(pat, word, s)
+            for pat in pats:
+                if pat.search(s):
+                    s = pat.sub(word, s)
                     break
 
-    s = re.sub(r' +', ' ', s).strip()
+    s = _RE_SPACES.sub(' ', s).strip()
     return s
 
 
@@ -357,6 +369,15 @@ def score_filename(query_words, filename):
         w for w in re.findall(r"[가-힣a-z]+", name_no_ext)
         if len(w) >= 2 and w not in EXT_STOPWORDS
     }
+
+    # 한글 공백 제거 후 비교: "화산천마" ↔ "화산 천마" (normal 매칭보다 먼저)
+    file_korean_joined = re.sub(r'[^가-힣a-z]', '', name_no_ext)
+    for qw in query_words:
+        if len(qw) >= 4 and re.match(r'^[가-힣]+$', qw):
+            if qw == file_korean_joined:
+                return 0.9
+            if qw in file_korean_joined or file_korean_joined in qw:
+                return 0.6
 
     # 정확 일치
     common = query_words & file_words
@@ -570,7 +591,7 @@ def clean_name(stem, skip_spacing=False):
 def search():
     config = load_config()
     downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
-    max_results = config.get("max_results", 10)
+    max_results = config.get("max_results", 30)
     min_word_len = config.get("min_word_length", 2)
 
     import unicodedata
@@ -625,6 +646,15 @@ def search():
         } if cstem else set()
 
         is_exact = bool(query_words) and query_words <= (raw_words | clean_words)
+        if not is_exact:
+            # 한글 공백 제거 비교: "화산천마" ↔ "화산 천마"
+            raw_joined = re.sub(r'[^가-힣a-z]', '', join_single_syllables(Path(f).stem.lower()))
+            clean_joined = re.sub(r'[^가-힣a-z]', '', join_single_syllables(cstem.lower())) if cstem else ""
+            is_exact = any(
+                len(qw) >= 4 and re.match(r'^[가-힣]+$', qw)
+                and (qw == raw_joined or qw == clean_joined)
+                for qw in query_words
+            )
         if is_exact:
             exact.append((score, f))
         else:
@@ -1697,6 +1727,8 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#1e
 .exact{background:#a6e3a1;border-radius:6px;margin-bottom:2px;border-bottom:none;padding:10px 8px}
 .exact .item-name{color:#1e1e2e}
 .exact .item-meta,.exact .item-size{color:#2d6a4f}
+.more-btn{display:block;width:100%;margin-top:6px;padding:8px;background:#313244;border:1px solid #45475a;border-radius:6px;color:#cdd6f4;font-size:13px;cursor:pointer;text-align:center}
+.more-btn:active{background:#45475a}
 .del-btn{background:none;border:none;color:#45475a;font-size:16px;cursor:pointer;padding:0 4px;flex-shrink:0}
 .del-btn:active{color:#f38ba8}
 .back-btn{background:none;border:none;color:#89b4fa;font-size:15px;cursor:pointer;padding:0 4px;flex-shrink:0}
@@ -1749,17 +1781,29 @@ function doSearch(){
   fetch(S+'/search?text='+encodeURIComponent(q)).then(r=>r.json()).then(data=>{
     res.innerHTML='';
     const items=[...(data.exact||[]).map(i=>({...i,ex:true})),...(data.partial||[])];
-    if(!items.length){res.innerHTML='<div class="empty">결과 없음</div>';return;}
-    items.forEach(item=>{
+    const txtItems=items.filter(i=>(typeof i==='object'?i.name:i).toLowerCase().endsWith('.txt'));
+    if(!txtItems.length){res.innerHTML='<div class="empty">결과 없음</div>';return;}
+    const LIMIT=10;
+    function renderItem(item){
       const name=typeof item==='object'?item.name:item;
-      if(!name.toLowerCase().endsWith('.txt'))return;
       const d=document.createElement('div');
       d.className='item'+(item.ex?' exact':'');
       d.innerHTML='<div class="item-info"><div class="item-name">'+name.replace(/\\.txt$/i,'')+'</div></div>'
         +'<span class="item-size">'+(item.size?item.size+' MB':'')+'</span>';
       d.addEventListener('click',()=>openViewer(name));
-      res.appendChild(d);
-    });
+      return d;
+    }
+    txtItems.slice(0,LIMIT).forEach(i=>res.appendChild(renderItem(i)));
+    if(txtItems.length>LIMIT){
+      const more=document.createElement('button');
+      more.className='more-btn';
+      more.textContent='더 보기 ('+(txtItems.length-LIMIT)+'개 더)';
+      more.addEventListener('click',()=>{
+        more.remove();
+        txtItems.slice(LIMIT).forEach(i=>res.appendChild(renderItem(i)));
+      });
+      res.appendChild(more);
+    }
   }).catch(()=>{res.innerHTML='<div class="empty">오류</div>';});
 }
 
