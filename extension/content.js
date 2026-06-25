@@ -10,8 +10,6 @@
   let timer = null;
   let hideTimer = null;
   let lastText = "";
-  let mouseX = 0;
-  let mouseY = 0;
   let dedupActive = false;
   let hoveredAttachItem = null;
   let _cbarRestoreFn = null;
@@ -33,7 +31,9 @@
       fontFamily: "'Segoe UI', system-ui, sans-serif",
       fontSize: "13px",
       lineHeight: "1.5",
-      width: "420px",
+      width: "max-content",
+      minWidth: "320px",
+      maxWidth: "calc(100vw - 20px)",
       maxHeight: "82vh",
       overflowY: "auto",
       boxShadow: "0 6px 24px rgba(0,0,0,.7)",
@@ -541,7 +541,7 @@
     clearMulti();
     const el = getOverlay();
     el.innerHTML = "";
-    Object.assign(el.style, { width: "420px", maxHeight: "520px" });
+    Object.assign(el.style, { maxHeight: "520px" });
 
     el.appendChild(makeTopButtons());
 
@@ -643,7 +643,7 @@
       Object.assign(arrow.style, { flexShrink: "0", color: "#6c7086", fontSize: "9px" });
 
       const nm = document.createElement("span");
-      Object.assign(nm.style, { flex: "1", fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#cdd6f4" });
+      Object.assign(nm.style, { flex: "1", fontSize: "11px", whiteSpace: "nowrap", color: "#cdd6f4" });
       nm.textContent = rawName; nm.title = rawName;
 
       topRow.appendChild(arrow);
@@ -762,7 +762,7 @@
               borderRadius: "0 3px 3px 0",
             });
             const lbl = document.createElement("span");
-            Object.assign(lbl.style, { flex: "1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: isExact ? "#a6e3a1" : "#f9e2af" });
+            Object.assign(lbl.style, { flex: "1", whiteSpace: "nowrap", color: isExact ? "#a6e3a1" : "#f9e2af" });
             lbl.textContent = fname;
             row.appendChild(lbl);
             if (fsize) {
@@ -993,10 +993,8 @@
     showMultiple([{ text, displayName: text, size: null, dlEl: null, siteIndex: 1 }]);
   }
 
-  // 마우스 위치 추적 + 호버 아이템 추적
+  // 호버 아이템 추적
   document.addEventListener("mousemove", (e) => {
-    mouseX = e.clientX;
-    mouseY = e.clientY;
     hoveredAttachItem = closestAttachItem(e.target);
   }, { passive: true });
 
