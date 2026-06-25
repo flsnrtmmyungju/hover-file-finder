@@ -670,19 +670,20 @@
   }
 
   // ── 페이지 전체 소설 목록 표시 (toki.org) ───────────────────────
-  function showMultiple(items) {
+  async function showMultiple(items) {
     clearMulti();
     const el = getOverlay();
     el.innerHTML = "";
-    Object.assign(el.style, { width: "380px", maxHeight: "380px" });
+    Object.assign(el.style, { width: "420px", maxHeight: "520px" });
 
     el.appendChild(makeTopButtons());
 
+    // 헤더
     const hdrRow = document.createElement("div");
-    Object.assign(hdrRow.style, { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" });
+    Object.assign(hdrRow.style, { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" });
     const hdr = document.createElement("div");
     Object.assign(hdr.style, { color: "#89b4fa", fontWeight: "700", fontSize: "11px" });
-    hdr.textContent = `📋 페이지 소설 ${items.length}개`;
+    hdr.textContent = `📋 페이지 소설 ${items.length}개 — 로딩 중...`;
     const closeBtn = document.createElement("span");
     closeBtn.textContent = "✕";
     Object.assign(closeBtn.style, { cursor: "pointer", color: "#6c7086", fontSize: "14px" });
@@ -690,148 +691,15 @@
     hdrRow.appendChild(hdr); hdrRow.appendChild(closeBtn);
     el.appendChild(hdrRow);
 
+    // 탭 영역 placeholder
+    const tabArea = document.createElement("div");
+    el.appendChild(tabArea);
+
     const listDiv = document.createElement("div");
-    Object.assign(listDiv.style, { maxHeight: "280px", overflowY: "auto" });
-
-    const _dlBtnStyle = {
-      fontSize: "10px", padding: "0 10px", flexShrink: "0",
-      height: "22px", lineHeight: "22px",
-      background: "linear-gradient(135deg, #89b4fa, #74c7ec)",
-      color: "#1e1e2e", border: "none", borderRadius: "4px",
-      fontWeight: "700", cursor: "pointer", boxSizing: "border-box",
-    };
-
-    items.forEach(({ text: searchText, displayName, size, dlEl, siteIndex }) => {
-      const section = document.createElement("div");
-      Object.assign(section.style, { borderTop: "1px solid #313244", paddingTop: "5px", marginBottom: "3px" });
-
-      const topRow = document.createElement("div");
-      Object.assign(topRow.style, { display: "flex", alignItems: "center", gap: "5px", marginBottom: "2px" });
-
-      const idx = document.createElement("span");
-      idx.textContent = `#${siteIndex}`;
-      Object.assign(idx.style, { flexShrink: "0", color: "#6c7086", fontSize: "10px", fontWeight: "700" });
-
-      const nm = document.createElement("span");
-      Object.assign(nm.style, { flex: "1", fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#cdd6f4" });
-      nm.textContent = displayName || searchText;
-
-      topRow.appendChild(idx);
-      topRow.appendChild(nm);
-
-      if (size) {
-        const sz = document.createElement("span");
-        Object.assign(sz.style, { flexShrink: "0", fontSize: "10px", color: "#6c7086" });
-        sz.textContent = size;
-        topRow.appendChild(sz);
-      }
-
-      // 다운로드 버튼
-      const rawName = displayName || searchText;
-      const dl = dlEl || findDownloadEl(rawName);
-      if (dl) {
-        if (dl.hasAttribute('data-theme-attach-download')) {
-          const proxy = document.createElement("button");
-          proxy.textContent = "다운로드";
-          Object.assign(proxy.style, _dlBtnStyle);
-          proxy.addEventListener("click", async (e) => {
-            e.stopPropagation();
-            const wrap = dl.closest('[data-theme-attachments]');
-            const isPaid = wrap?.getAttribute('data-is-paid') === '1' && wrap?.getAttribute('data-free') !== '1';
-            if (isPaid || !wrap) { dl.click(); return; }
-            const postId = wrap.getAttribute('data-post-id') || '';
-            const idx2 = dl.getAttribute('data-attach-index') || '0';
-            const fname = dl.getAttribute('data-file-name') || 'download';
-            const url = `/api/board/file?p=${encodeURIComponent(postId)}&i=${encodeURIComponent(idx2)}`;
-            proxy.disabled = true; proxy.textContent = '확인중';
-            try {
-              const chk = await fetch(url + '&check=1', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
-              if (!chk.ok) { const j = await chk.json().catch(() => null); throw new Error(j?.error || '다운로드 불가'); }
-              const a = document.createElement('a'); a.href = url; a.download = fname; a.rel = 'noreferrer';
-              document.body.appendChild(a); a.click(); a.remove();
-              proxy.textContent = '완료'; setTimeout(() => { proxy.textContent = '다운로드'; proxy.disabled = false; }, 2000);
-            } catch (err) {
-              proxy.textContent = (err.message || '실패').slice(0, 8);
-              setTimeout(() => { proxy.textContent = '다운로드'; proxy.disabled = false; }, 3000);
-            }
-          });
-          topRow.appendChild(proxy);
-        } else {
-          const dlParent = dl.parentElement;
-          const dlNext = dl.nextSibling;
-          _movedDlEls.push({ el: dl, parent: dlParent, next: dlNext });
-          Object.assign(dl.style, _dlBtnStyle);
-          topRow.appendChild(dl);
-        }
-      }
-
-      section.appendChild(topRow);
-
-      // 서버 검색 결과
-      const resultDiv = document.createElement("div");
-      Object.assign(resultDiv.style, { fontSize: "10px", color: "#6c7086", paddingLeft: "16px", marginBottom: "2px" });
-      resultDiv.textContent = "검색 중...";
-      section.appendChild(resultDiv);
-
-      fetch(`${SERVER}?text=${encodeURIComponent(searchText)}`)
-        .then(r => r.json())
-        .then(data => {
-          resultDiv.innerHTML = "";
-          resultDiv.style.paddingLeft = "0";
-          if (data.no_search) { resultDiv.textContent = "검색 불가"; return; }
-          const exact = data.exact || [], partial = data.partial || [];
-          if (!exact.length && !partial.length) {
-            const none = document.createElement("div");
-            Object.assign(none.style, { color: "#6c7086", fontSize: "10px", padding: "2px 0 2px 16px" });
-            none.textContent = "미보유";
-            resultDiv.appendChild(none);
-            return;
-          }
-          const makeName = (item, isExact) => {
-            const name = typeof item === "object" ? item.name : item;
-            const size = typeof item === "object" ? item.size : null;
-            const row = document.createElement("div");
-            Object.assign(row.style, {
-              display: "flex", alignItems: "center", gap: "5px",
-              padding: "2px 4px 2px 16px", fontSize: "10px",
-              background: isExact ? "rgba(166,227,161,0.15)" : "rgba(249,226,175,0.08)",
-              borderLeft: `2px solid ${isExact ? "#a6e3a1" : "#f9e2af"}`,
-              marginBottom: "1px", borderRadius: "0 3px 3px 0",
-            });
-            const lbl = document.createElement("span");
-            Object.assign(lbl.style, { flex: "1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: isExact ? "#a6e3a1" : "#f9e2af" });
-            lbl.textContent = name;
-            row.appendChild(lbl);
-            if (size) {
-              const sz = document.createElement("span");
-              Object.assign(sz.style, { flexShrink: "0", color: "#6c7086" });
-              sz.textContent = size + "MB";
-              row.appendChild(sz);
-            }
-            return row;
-          };
-          if (exact.length) {
-            const hd = document.createElement("div");
-            Object.assign(hd.style, { fontSize: "10px", color: "#a6e3a1", fontWeight: "700", padding: "2px 0 1px 16px" });
-            hd.textContent = `✓ 정확 ${exact.length}개`;
-            resultDiv.appendChild(hd);
-            exact.forEach(it => resultDiv.appendChild(makeName(it, true)));
-          }
-          if (partial.length) {
-            const hd = document.createElement("div");
-            Object.assign(hd.style, { fontSize: "10px", color: "#f9e2af", fontWeight: "700", padding: "3px 0 1px 16px" });
-            hd.textContent = `~ 유사 ${partial.length}개`;
-            resultDiv.appendChild(hd);
-            partial.forEach(it => resultDiv.appendChild(makeName(it, false)));
-          }
-        })
-        .catch(() => { resultDiv.textContent = "서버 오류"; resultDiv.style.color = "#f38ba8"; });
-
-      listDiv.appendChild(section);
-    });
-
+    Object.assign(listDiv.style, { maxHeight: "380px", overflowY: "auto" });
     el.appendChild(listDiv);
 
+    // 오버레이 위치 먼저 잡기
     const GAP = 12;
     el.style.left = mouseX + "px";
     el.style.top = (mouseY + GAP) + "px";
@@ -840,17 +708,243 @@
     el.style.setProperty("opacity", "1", "important");
     el.scrollTop = 0;
     clearTimeout(hideTimer);
-
     requestAnimationFrame(() => {
       const rect = el.getBoundingClientRect();
       let left = parseFloat(el.style.left), top = parseFloat(el.style.top);
       if (rect.right  > window.innerWidth  - 8) left = window.innerWidth  - rect.width  - 8;
       if (rect.bottom > window.innerHeight - 8) top  = mouseY - rect.height - 4;
-      if (left < 4) left = 4;
-      if (top  < 4) top  = 4;
-      el.style.left = left + "px";
-      el.style.top  = top  + "px";
+      if (left < 4) left = 4; if (top < 4) top = 4;
+      el.style.left = left + "px"; el.style.top = top + "px";
     });
+
+    const _dlBtnStyle = {
+      fontSize: "10px", padding: "0 8px", flexShrink: "0",
+      height: "20px", lineHeight: "20px",
+      background: "linear-gradient(135deg, #89b4fa, #74c7ec)",
+      color: "#1e1e2e", border: "none", borderRadius: "3px",
+      fontWeight: "700", cursor: "pointer", boxSizing: "border-box",
+    };
+
+    // 모든 항목 병렬 검색
+    const results = await Promise.all(items.map(async (item) => {
+      try {
+        const res = await fetch(`${SERVER}?text=${encodeURIComponent(item.text)}`);
+        const data = await res.json();
+        return { item, exact: data.exact || [], partial: data.partial || [] };
+      } catch {
+        return { item, exact: [], partial: [], error: true };
+      }
+    }));
+
+    // 탭 분류
+    const groups = {
+      match:   results.filter(r => r.exact.length > 0),
+      need:    results.filter(r => r.exact.length === 0 && r.partial.length > 0),
+      none:    results.filter(r => r.exact.length === 0 && r.partial.length === 0),
+    };
+
+    hdr.textContent = `📋 페이지 소설 ${items.length}개`;
+
+    // 탭 버튼
+    const TABS = [
+      { key: "match", label: "일치",     color: "#a6e3a1", dim: "#2d6a4f" },
+      { key: "need",  label: "확인필요", color: "#f9e2af", dim: "#7a6730" },
+      { key: "none",  label: "미보유",   color: "#6c7086", dim: "#45475a" },
+    ];
+    let activeTab = groups.match.length > 0 ? "match" : groups.need.length > 0 ? "need" : "none";
+
+    const tabRow = document.createElement("div");
+    Object.assign(tabRow.style, { display: "flex", gap: "4px", marginBottom: "6px" });
+    tabArea.appendChild(tabRow);
+
+    const renderList = (key) => {
+      listDiv.innerHTML = "";
+      const rList = groups[key];
+      if (!rList.length) {
+        const empty = document.createElement("div");
+        Object.assign(empty.style, { color: "#6c7086", fontSize: "11px", padding: "8px 4px" });
+        empty.textContent = "해당 항목 없음";
+        listDiv.appendChild(empty);
+        return;
+      }
+
+      rList.forEach(({ item, exact, partial }) => {
+        const { text: searchText, displayName, size, dlEl } = item;
+        const rawName = displayName || searchText;
+        const section = document.createElement("div");
+        Object.assign(section.style, { borderTop: "1px solid #313244", padding: "5px 0 3px" });
+
+        // 헤더 행 (클릭 시 접기/펼치기)
+        const topRow = document.createElement("div");
+        Object.assign(topRow.style, { display: "flex", alignItems: "center", gap: "5px", cursor: "pointer", userSelect: "none" });
+
+        const arrow = document.createElement("span");
+        arrow.textContent = "▾";
+        Object.assign(arrow.style, { flexShrink: "0", color: "#6c7086", fontSize: "9px", transition: "transform .15s" });
+
+        const nm = document.createElement("span");
+        Object.assign(nm.style, { flex: "1", fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#cdd6f4" });
+        nm.textContent = rawName;
+        nm.title = rawName;
+
+        if (size) {
+          const sz = document.createElement("span");
+          Object.assign(sz.style, { flexShrink: "0", fontSize: "10px", color: "#6c7086" });
+          sz.textContent = size;
+          topRow.appendChild(arrow);
+          topRow.appendChild(nm);
+          topRow.appendChild(sz);
+        } else {
+          topRow.appendChild(arrow);
+          topRow.appendChild(nm);
+        }
+
+        // 다운로드 버튼
+        const dl = dlEl || findDownloadEl(rawName);
+        if (dl) {
+          if (dl.hasAttribute('data-theme-attach-download')) {
+            const proxy = document.createElement("button");
+            proxy.textContent = "다운로드";
+            Object.assign(proxy.style, _dlBtnStyle);
+            proxy.addEventListener("click", async (e) => {
+              e.stopPropagation();
+              const wrap = dl.closest('[data-theme-attachments]');
+              const isPaid = wrap?.getAttribute('data-is-paid') === '1' && wrap?.getAttribute('data-free') !== '1';
+              if (isPaid || !wrap) { dl.click(); return; }
+              const postId = wrap.getAttribute('data-post-id') || '';
+              const idx2 = dl.getAttribute('data-attach-index') || '0';
+              const fname = dl.getAttribute('data-file-name') || 'download';
+              const url = `/api/board/file?p=${encodeURIComponent(postId)}&i=${encodeURIComponent(idx2)}`;
+              proxy.disabled = true; proxy.textContent = '확인중';
+              try {
+                const chk = await fetch(url + '&check=1', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+                if (!chk.ok) { const j = await chk.json().catch(() => null); throw new Error(j?.error || '다운로드 불가'); }
+                const a = document.createElement('a'); a.href = url; a.download = fname; a.rel = 'noreferrer';
+                document.body.appendChild(a); a.click(); a.remove();
+                proxy.textContent = '완료'; setTimeout(() => { proxy.textContent = '다운로드'; proxy.disabled = false; }, 2000);
+              } catch (err) {
+                proxy.textContent = (err.message || '실패').slice(0, 8);
+                setTimeout(() => { proxy.textContent = '다운로드'; proxy.disabled = false; }, 3000);
+              }
+            });
+            topRow.appendChild(proxy);
+          } else {
+            const dlParent = dl.parentElement;
+            const dlNext = dl.nextSibling;
+            _movedDlEls.push({ el: dl, parent: dlParent, next: dlNext });
+            Object.assign(dl.style, _dlBtnStyle);
+            topRow.appendChild(dl);
+          }
+        }
+
+        // 결과 패널 (접기/펼치기)
+        const panel = document.createElement("div");
+        panel.style.display = "block";
+
+        const makeFileRow = (fileItem, isExact) => {
+          const fname = typeof fileItem === "object" ? fileItem.name : fileItem;
+          const fsize = typeof fileItem === "object" ? fileItem.size : null;
+          const row = document.createElement("div");
+          Object.assign(row.style, {
+            display: "flex", alignItems: "center", gap: "5px",
+            padding: "2px 4px 2px 18px", fontSize: "10px", marginBottom: "1px",
+            background: isExact ? "rgba(166,227,161,0.12)" : "rgba(249,226,175,0.08)",
+            borderLeft: `2px solid ${isExact ? "#a6e3a1" : "#f9e2af"}`,
+            borderRadius: "0 3px 3px 0",
+          });
+          const lbl = document.createElement("span");
+          Object.assign(lbl.style, { flex: "1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: isExact ? "#a6e3a1" : "#f9e2af" });
+          lbl.textContent = fname;
+          row.appendChild(lbl);
+          if (fsize) {
+            const fs = document.createElement("span");
+            Object.assign(fs.style, { flexShrink: "0", color: "#6c7086" });
+            fs.textContent = fsize + "MB";
+            row.appendChild(fs);
+          }
+          const delBtn = document.createElement("button");
+          delBtn.textContent = "🗑";
+          Object.assign(delBtn.style, { flexShrink: "0", background: "none", border: "none", cursor: "pointer", fontSize: "12px", padding: "0 2px", color: "#6c7086" });
+          delBtn.title = "삭제 (휴지통)";
+          delBtn.addEventListener("mouseenter", () => delBtn.style.color = "#f38ba8");
+          delBtn.addEventListener("mouseleave", () => delBtn.style.color = "#6c7086");
+          delBtn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            if (!confirm(`삭제하시겠습니까?\n${fname}`)) return;
+            try {
+              const r = await fetch(`http://localhost:7823/delete?filename=${encodeURIComponent(fname)}`, { method: "POST" });
+              const d = await r.json();
+              if (d.ok) { row.style.opacity = "0.3"; lbl.textContent = "✓ 삭제: " + fname; delBtn.remove(); }
+              else alert("삭제 실패: " + (d.error || "오류"));
+            } catch { alert("서버 오류"); }
+          });
+          row.appendChild(delBtn);
+          return row;
+        };
+
+        if (exact.length) {
+          const hd = document.createElement("div");
+          Object.assign(hd.style, { fontSize: "10px", color: "#a6e3a1", fontWeight: "700", padding: "3px 0 1px 18px" });
+          hd.textContent = `✓ 정확 ${exact.length}개`;
+          panel.appendChild(hd);
+          exact.forEach(it => panel.appendChild(makeFileRow(it, true)));
+        }
+        if (partial.length) {
+          const hd = document.createElement("div");
+          Object.assign(hd.style, { fontSize: "10px", color: "#f9e2af", fontWeight: "700", padding: "3px 0 1px 18px" });
+          hd.textContent = `~ 유사 ${partial.length}개`;
+          panel.appendChild(hd);
+          partial.forEach(it => panel.appendChild(makeFileRow(it, false)));
+        }
+        if (!exact.length && !partial.length) {
+          const none = document.createElement("div");
+          Object.assign(none.style, { fontSize: "10px", color: "#6c7086", padding: "2px 0 2px 18px" });
+          none.textContent = "미보유";
+          panel.appendChild(none);
+        }
+
+        // 클릭 시 접기/펼치기
+        let expanded = true;
+        topRow.addEventListener("click", (e) => {
+          if (e.target.tagName === "BUTTON") return;
+          expanded = !expanded;
+          panel.style.display = expanded ? "block" : "none";
+          arrow.textContent = expanded ? "▾" : "▸";
+        });
+
+        section.appendChild(topRow);
+        section.appendChild(panel);
+        listDiv.appendChild(section);
+      });
+    };
+
+    // 탭 버튼 렌더
+    TABS.forEach(({ key, label, color }) => {
+      const cnt = groups[key].length;
+      const btn = document.createElement("button");
+      btn.textContent = `${label} ${cnt}`;
+      const isActive = key === activeTab;
+      Object.assign(btn.style, {
+        flex: "1", padding: "4px 0", border: "none", borderRadius: "4px",
+        fontSize: "10px", fontWeight: "700", cursor: "pointer",
+        background: isActive ? color : "#313244",
+        color: isActive ? "#1e1e2e" : cnt > 0 ? color : "#45475a",
+      });
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        activeTab = key;
+        tabRow.querySelectorAll("button").forEach((b, i) => {
+          const t = TABS[i];
+          const active = t.key === key;
+          b.style.background = active ? t.color : "#313244";
+          b.style.color = active ? "#1e1e2e" : groups[t.key].length > 0 ? t.color : "#45475a";
+        });
+        renderList(key);
+      });
+      tabRow.appendChild(btn);
+    });
+
+    renderList(activeTab);
   }
 
   // ── 댓글 + 추천 바 ──────────────────────────────────────────────
