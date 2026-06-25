@@ -181,6 +181,7 @@ _RE_WAN     = re.compile(r'(?<!\s)(?<!미)완$')
 _RE_MANE    = re.compile(r'(\d+(?:년|일|월|주|시간|분|초)?)만에')
 _RE_BUNUI   = re.compile(r'(\d+(?:억|조|천|백|만)?)분의\s*(\d+)')
 _RE_NUM_KOR = re.compile(r'(\d)([가-힣]{2,})')
+_RE_NUM_ORDINAL = re.compile(r'(\d+번)([가-힣]{2,})')  # "4번타자" → "4번 타자"
 _RE_SU      = re.compile(r'([가-힣])수\s*(있|없)')
 _RE_GEOT    = re.compile(r'([가-힣])것(?![가-힣])')
 _RE_PPUN    = re.compile(r'([가-힣]{2,})뿐(?!이|인|만|도|이다|이야)')
@@ -247,6 +248,7 @@ def _apply_rules(s):
     # ── 2차: 의존명사 ────────────────────────────────────────────────
     s = _RE_MANE.sub(r'\1 만에', s)
     s = _RE_BUNUI.sub(r'\1 분의 \2', s)
+    s = _RE_NUM_ORDINAL.sub(r'\1 \2', s)
     s = _RE_NUM_KOR.sub(r'\1 \2', s)
     s = _RE_SU.sub(r'\1 수 \2', s)
     s = _RE_GEOT.sub(r'\1 것', s)
@@ -298,7 +300,13 @@ def fix_spacing(text):
     run = []
     for t in parts:
         if re.match(r'^[가-힣]{1,2}$', t) and t not in _TITLE_MARKERS:
-            run.append(t)
+            # 2자 토큰이 1자 토큰 뒤 && run 길이 2+: 단어 경계 → run 분리
+            # 예) ["예술","고","음악"] → "예술고" + "음악" (예술고음악 방지)
+            if len(t) == 2 and len(run) >= 2 and len(run[-1]) == 1:
+                _flush_run(run, merged, False)
+                run = [t]
+            else:
+                run.append(t)
         else:
             nxt_long = bool(re.match(r'^[가-힣]{3,}$', t))
             _flush_run(run, merged, nxt_long)
@@ -337,7 +345,12 @@ def join_single_syllables(text):
     run = []
     for part in parts:
         if re.match(r"^[가-힣]{1,2}$", part) and part not in _TITLE_MARKERS:
-            run.append(part)
+            # 2자 토큰이 1자 토큰 뒤 && run 길이 2+: 단어 경계 → run 분리
+            if len(part) == 2 and len(run) >= 2 and len(run[-1]) == 1:
+                _flush_run(run, result, False)
+                run = [part]
+            else:
+                run.append(part)
         else:
             next_long_korean = bool(re.match(r"^[가-힣]{3,}$", part))
             _flush_run(run, result, next_long_korean)
