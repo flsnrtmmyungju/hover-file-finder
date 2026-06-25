@@ -973,10 +973,21 @@
   }
 
   // ── 댓글 + 추천 바 ──────────────────────────────────────────────
+  function filterNovelTitle(raw) {
+    return raw
+      .replace(/\.[^.]+$/, '')          // 확장자 제거
+      .replace(/@.*$/, '')              // @업로더태그 제거
+      .replace(/\s*\d+[-~]\d+\s*/g, ' ') // 화수 범위 (1-225, 1~225)
+      .replace(/\s*\(?\s*(完|완|미완|complete)\s*\)?\s*/gi, ' ') // 완결표시
+      .replace(/\s{2,}/g, ' ')          // 연속 공백 정리
+      .trim();
+  }
+
   function makeAutoComment(items) {
-    const title = (items && items.length > 0)
-      ? (items[0].displayName || items[0].text || "").replace(/\.[^.]+$/, '').trim()
+    const raw = (items && items.length > 0)
+      ? (items[0].displayName || items[0].text || "")
       : "";
+    const title = filterNovelTitle(raw);
     let comment = title ? `${title} 감사합니다` : "감사합니다";
     if (comment.length < 10) {
       while (comment.length < 15) comment += "!@";
