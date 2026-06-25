@@ -1155,20 +1155,7 @@
   async function fetchAndShow(text) {
     if (dedupActive) return;
     showLoading();
-    try {
-      const res = await fetch(`${SERVER}?text=${encodeURIComponent(text)}`);
-      if (!res.ok) { hide(); return; }
-      const data = await res.json();
-      if (!data || data.no_search) {
-        hide();
-        lastText = "";
-        return;
-      }
-      show(data.exact || [], data.partial || []);
-    } catch {
-      hide();
-      lastText = "";
-    }
+    showMultiple([{ text, displayName: text, size: null, dlEl: null, siteIndex: 1 }]);
   }
 
   // 마우스 위치 추적 + 호버 아이템 추적
