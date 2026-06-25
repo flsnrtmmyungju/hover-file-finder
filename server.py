@@ -261,6 +261,15 @@ def _apply_rules(s):
         pat = rf'([가-힣]{{2,}})({re.escape(_job)})(?![가-힣])'
         s = re.sub(pat, lambda m, j=_job: _job_repl(m, _job=j), s)
 
+    # ── 최종: 규칙 실행 후 쪼개진 복합어 복원 ────────────────────────
+    for word in COMPOUND_WORDS:
+        if word not in s:
+            for i in range(1, len(word)):
+                pat = re.escape(word[:i]) + r"\s+" + re.escape(word[i:])
+                if re.search(pat, s):
+                    s = re.sub(pat, word, s)
+                    break
+
     s = re.sub(r' +', ' ', s).strip()
     return s
 
