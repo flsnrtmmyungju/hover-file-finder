@@ -192,6 +192,9 @@ def _apply_rules(s):
     # \s* 허용: clean_name의 한글+숫자 공백 삽입 후 "분의 1" 형태도 처리
     s = re.sub(r'(\d+(?:억|조|천|백|만)?)분의\s*(\d+)', r'\1 분의 \2', s)
 
+    # 숫자 바로 뒤 2자+ 한글 → 공백 (1사나이 → 1 사나이, 화·권·편·장 등 단음절 단위는 제외)
+    s = re.sub(r'(\d)([가-힣]{2,})', r'\1 \2', s)
+
     # 수: 할수있다/없다 → 할 수 있다/없다
     s = re.sub(r'([가-힣])수\s*(있|없)', r'\1 수 \2', s)
 
@@ -275,8 +278,23 @@ def _apply_rules(s):
 
 
 def fix_spacing(text):
-    """파일명 띄어쓰기 교정 (사전+규칙 기반, Kiwi 불사용)"""
-    return _apply_rules(text)
+    """파일명 띄어쓰기 교정 - 음절 분리 정규화 후 규칙 재적용"""
+    # 음절 분리 정규화 먼저 (join_single_syllables 로직 재사용)
+    # "네 임드" → "네임드", "게임 속 기사" → 속은 의존명사라 그대로
+    parts = text.split(' ')
+    merged = []
+    run = []
+    for t in parts:
+        if re.match(r'^[가-힣]{1,2}$', t) and t not in _TITLE_MARKERS:
+            run.append(t)
+        else:
+            nxt_long = bool(re.match(r'^[가-힣]{3,}$', t))
+            _flush_run(run, merged, nxt_long)
+            run = []
+            merged.append(t)
+    _flush_run(run, merged, False)
+    s = ' '.join(r for r in merged if r)
+    return _apply_rules(s)
 
 
 
@@ -292,33 +310,44 @@ def strip_episode(text):
 
 _TITLE_MARKERS = {'완', '완결', '미완', '후기', '후', '외전', '외', '번외', '부'}
 
+# 이 단음절은 의존명사/후치사이므로 음절 합치기 대상에서 제외
+_DEP_NOUN_CHARS = {'속', '중', '내', '간', '위', '밖', '등', '수', '뿐', '것', '및', '듯'}
+
 def join_single_syllables(text):
     """한글이 한 글자씩 공백으로 분리된 경우 합치기"""
     parts = text.split(" ")
 
-    # 토큰 단위로 1-2자 한글 연속 구간(run)을 찾아 4개 이상이면 붙임
-    # 완/미완 같은 마커는 run에 포함하지 않고 별도 토큰으로 유지
-    # "능 천신 제 엽 경 창 1-978 완" → [능천신제엽경창] [1-978] [완]
+    # run: 연속된 1-2자 한글 토큰(마커 제외)
+    # - 2개 이상 + 1자 토큰 포함 + 의존명사 단음절 없음 → 합침
+    # - 4개 이상인 경우 바로 뒤에 3자+ 한글이 오면 서술형 → 합치지 않음
+    # 예) "네 임드" → "네임드"  |  "게임 속 기사" → 속은 의존명사 → 그대로
     result = []
     run = []
     for part in parts:
         if re.match(r"^[가-힣]{1,2}$", part) and part not in _TITLE_MARKERS:
             run.append(part)
         else:
-            # 바로 뒤에 3자 이상 한글 단어가 오면 서술형 제목(조사 포함) → 붙이지 않음
-            # 예) 금강 권 마는 집에 돌아왔다 → 뒤에 '돌아왔다' 있으니 그대로
             next_long_korean = bool(re.match(r"^[가-힣]{3,}$", part))
-            if len(run) >= 4 and any(len(p) == 1 for p in run) and not next_long_korean:
-                result.append("".join(run))
-            else:
-                result.extend(run)
+            _flush_run(run, result, next_long_korean)
             run = []
             result.append(part)
-    if len(run) >= 4 and any(len(p) == 1 for p in run):
-        result.append("".join(run))
-    else:
-        result.extend(run)
+    _flush_run(run, result, False)
     return " ".join(r for r in result if r)
+
+
+def _flush_run(run, result, next_long_korean):
+    if len(run) < 2 or not any(len(p) == 1 for p in run):
+        result.extend(run)
+        return
+    has_dep_noun = any(p in _DEP_NOUN_CHARS for p in run if len(p) == 1)
+    if has_dep_noun:
+        result.extend(run)
+        return
+    # 4개 이상 장문 run은 서술형 제목 가능성 → 뒤에 장문 한글 오면 합치지 않음
+    if len(run) >= 4 and next_long_korean:
+        result.extend(run)
+        return
+    result.append("".join(run))
 
 
 def score_filename(query_words, filename):
