@@ -882,19 +882,44 @@
           return row;
         };
 
-        if (exact.length) {
+        const makeGroupHeader = (label, color, fileItems, isExact) => {
           const hd = document.createElement("div");
-          Object.assign(hd.style, { fontSize: "10px", color: "#a6e3a1", fontWeight: "700", padding: "3px 0 1px 18px" });
-          hd.textContent = `✓ 정확 ${exact.length}개`;
-          panel.appendChild(hd);
-          exact.forEach(it => panel.appendChild(makeFileRow(it, true)));
+          Object.assign(hd.style, { display: "flex", alignItems: "center", padding: "3px 4px 1px 18px", gap: "6px" });
+          const lbl = document.createElement("span");
+          Object.assign(lbl.style, { fontSize: "10px", color, fontWeight: "700", flex: "1" });
+          lbl.textContent = label;
+          hd.appendChild(lbl);
+          const delAll = document.createElement("button");
+          delAll.textContent = "전체삭제";
+          Object.assign(delAll.style, { fontSize: "9px", padding: "1px 5px", background: "#f38ba8", color: "#1e1e2e", border: "none", borderRadius: "3px", fontWeight: "700", cursor: "pointer", flexShrink: "0" });
+          delAll.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            const names = fileItems.map(it => typeof it === "object" ? it.name : it);
+            if (!confirm(`${names.length}개 파일을 모두 삭제하시겠습니까?\n${names.slice(0, 3).join("\n")}${names.length > 3 ? "\n..." : ""}`)) return;
+            delAll.disabled = true; delAll.textContent = "삭제중...";
+            let ok = 0;
+            for (const fname of names) {
+              try {
+                const r = await fetch(`http://localhost:7823/delete?filename=${encodeURIComponent(fname)}`, { method: "POST" });
+                const d = await r.json();
+                if (d.ok) ok++;
+              } catch {}
+            }
+            delAll.textContent = `✓ ${ok}/${names.length}`;
+            // 행들 흐리게
+            [...panel.querySelectorAll(`[data-group="${isExact ? "exact" : "partial"}"]`)].forEach(r => { r.style.opacity = "0.3"; });
+          });
+          hd.appendChild(delAll);
+          return hd;
+        };
+
+        if (exact.length) {
+          panel.appendChild(makeGroupHeader(`✓ 정확 ${exact.length}개`, "#a6e3a1", exact, true));
+          exact.forEach(it => { const r = makeFileRow(it, true); r.dataset.group = "exact"; panel.appendChild(r); });
         }
         if (partial.length) {
-          const hd = document.createElement("div");
-          Object.assign(hd.style, { fontSize: "10px", color: "#f9e2af", fontWeight: "700", padding: "3px 0 1px 18px" });
-          hd.textContent = `~ 유사 ${partial.length}개`;
-          panel.appendChild(hd);
-          partial.forEach(it => panel.appendChild(makeFileRow(it, false)));
+          panel.appendChild(makeGroupHeader(`~ 유사 ${partial.length}개`, "#f9e2af", partial, false));
+          partial.forEach(it => { const r = makeFileRow(it, false); r.dataset.group = "partial"; panel.appendChild(r); });
         }
         if (!exact.length && !partial.length) {
           const none = document.createElement("div");
