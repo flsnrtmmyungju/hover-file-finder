@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>소설 뷰어</title>
+<style>
+:root {
+  --sb-track: #1e1e2e;
+  --sb-thumb: rgba(255,255,255,0.13);
+  --sb-thumb-hover: rgba(255,255,255,0.24);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Malgun Gothic', 'Nanum Gothic', sans-serif;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 상단 바 */
+#topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: #181825;
+  border-bottom: 1px solid #313244;
+  flex-shrink: 0;
+}
+#title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 700;
+  color: #89b4fa;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#chapterSelect {
+  background: #313244;
+  color: #cdd6f4;
+  border: 1px solid #45475a;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 11px;
+  max-width: 220px;
+  cursor: pointer;
+}
+#posInfo {
+  font-size: 11px;
+  color: #6c7086;
+  flex-shrink: 0;
+  min-width: 36px;
+  text-align: right;
+}
+.topbar-btn {
+  background: none;
+  border: 1px solid #45475a;
+  color: #cdd6f4;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+.topbar-btn:hover { background: #313244; }
+#giveupBtn  { color: #f38ba8; }
+#finishBtn  { color: #a6e3a1; }
+#saveBtn.saved { color: #a6e3a1; border-color: #a6e3a1; }
+#settingsBtn { font-size: 13px; }
+#settingsBtn.active { background: #313244; color: #89b4fa; border-color: #89b4fa; }
+.topbar-select {
+  background: #313244;
+  color: #cdd6f4;
+  border: 1px solid #45475a;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#saveStatusBtn.saved { color: #a6e3a1; border-color: #a6e3a1; }
+#savePosBtn.saved   { color: #a6e3a1; border-color: #a6e3a1; }
+
+/* 설정 패널 */
+#settingsPanel {
+  display: none;
+  background: #181825;
+  border-bottom: 1px solid #313244;
+  padding: 12px 16px;
+  flex-shrink: 0;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+#settingsPanel.open { display: flex; }
+.setting-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.setting-label { font-size: 11px; color: #6c7086; min-width: 44px; }
+.setting-group input[type=range] { width: 90px; accent-color: #89b4fa; cursor: pointer; }
+.setting-group input[type=color] {
+  width: 32px; height: 24px; border: 1px solid #45475a;
+  border-radius: 4px; background: none; cursor: pointer; padding: 1px;
+}
+.setting-group select {
+  background: #313244; color: #cdd6f4; border: 1px solid #45475a;
+  border-radius: 4px; padding: 2px 4px; font-size: 11px; cursor: pointer;
+}
+.setting-val { font-size: 11px; color: #a6adc8; min-width: 28px; }
+#resetBtn {
+  background: #313244; border: 1px solid #45475a; color: #f38ba8;
+  border-radius: 4px; padding: 3px 10px; font-size: 11px; cursor: pointer;
+}
+#resetBtn:hover { background: #45475a; }
+
+/* 본문 */
+#content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px 12%;
+  line-height: 2;
+  font-size: 15px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  scrollbar-color: var(--sb-thumb) var(--sb-track);
+  scrollbar-width: thin;
+}
+#content::-webkit-scrollbar { width: 6px; }
+#content::-webkit-scrollbar-track { background: var(--sb-track); }
+#content::-webkit-scrollbar-thumb { background: var(--sb-thumb); border-radius: 3px; }
+#content::-webkit-scrollbar-thumb:hover { background: var(--sb-thumb-hover); }
+
+#loading {
+  display: flex; align-items: center; justify-content: center;
+  flex: 1; color: #6c7086; font-size: 14px;
+}
+.ch {
+  display: block; color: #89b4fa; font-weight: 700; font-size: 14px;
+  margin: 36px 0 10px; padding-top: 10px; border-top: 1px solid #313244;
+}
+.ch:first-child { margin-top: 0; border-top: none; }
+
+/* 확인 모달 */
+#confirmOverlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.55); z-index: 9999;
+  align-items: center; justify-content: center;
+}
+#confirmOverlay.open { display: flex; }
+#confirmBox {
+  background: #1e1e2e; border: 1px solid #45475a; border-radius: 10px;
+  padding: 24px 28px; min-width: 240px; text-align: center;
+  box-shadow: 0 8px 32px rgba(0,0,0,.8);
+}
+#confirmMsg { font-size: 13px; color: #cdd6f4; margin-bottom: 18px; line-height: 1.6; }
+#confirmBtns { display: flex; gap: 10px; justify-content: center; }
+#confirmBtns button {
+  border: 1px solid #45475a; border-radius: 6px; padding: 6px 20px;
+  font-size: 12px; cursor: pointer; background: #313244; color: #cdd6f4;
+}
+#confirmBtns button:hover { background: #45475a; }
+#confirmOk { color: #a6e3a1; border-color: #a6e3a1; }
+#confirmOk:hover { background: rgba(166,227,161,0.15) !important; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <span id="title">소설 뷰어</span>
+  <select id="chapterSelect" style="display:none"></select>
+  <span id="posInfo"></span>
+  <select id="statusSelect" class="topbar-select">
+    <option value="기록">기록</option>
+    <option value="포기">포기</option>
+    <option value="다읽음">다읽음</option>
+  </select>
+  <button class="topbar-btn" id="saveStatusBtn">상태저장</button>
+  <button class="topbar-btn" id="savePosBtn" title="현재 위치 저장">위치저장</button>
+  <button class="topbar-btn" id="settingsBtn" title="스타일 설정">⚙</button>
+</div>
+
+<!-- 설정 패널 -->
+<div id="settingsPanel">
+  <div class="setting-group">
+    <span class="setting-label">좌우여백</span>
+    <input type="range" id="sPadding" min="0" max="30" step="1">
+    <span class="setting-val" id="vPadding"></span>
+  </div>
+  <div class="setting-group">
+    <span class="setting-label">글씨체</span>
+    <select id="sFont">
+      <option value="'Malgun Gothic','Nanum Gothic',sans-serif">맑은 고딕</option>
+      <option value="'Nanum Gothic',sans-serif">나눔 고딕</option>
+      <option value="'Nanum Myeongjo',serif">나눔 명조</option>
+      <option value="'Batang',serif">바탕체</option>
+      <option value="'Dotum',sans-serif">돋움체</option>
+      <option value="'Gulim',sans-serif">굴림체</option>
+      <option value="'Gungsuh',serif">궁서체</option>
+    </select>
+  </div>
+  <div class="setting-group">
+    <span class="setting-label">글씨크기</span>
+    <input type="range" id="sFontSize" min="11" max="28" step="1">
+    <span class="setting-val" id="vFontSize"></span>
+  </div>
+  <div class="setting-group">
+    <span class="setting-label">줄간격</span>
+    <input type="range" id="sLineHeight" min="1.2" max="3.5" step="0.1">
+    <span class="setting-val" id="vLineHeight"></span>
+  </div>
+  <div class="setting-group">
+    <span class="setting-label">배경색</span>
+    <input type="color" id="sBg">
+  </div>
+  <div class="setting-group">
+    <span class="setting-label">글자색</span>
+    <input type="color" id="sFg">
+  </div>
+  <button id="resetBtn">기본값으로</button>
+</div>
+
+<div id="loading">불러오는 중...</div>
+<div id="content" style="display:none"></div>
+
+<!-- 확인 모달 -->
+<div id="confirmOverlay">
+  <div id="confirmBox">
+    <p id="confirmMsg"></p>
+    <div id="confirmBtns">
+      <button id="confirmOk">확인</button>
+      <button id="confirmCancel">취소</button>
+    </div>
+  </div>
+</div>
+
+<script src="viewer.js"></script>
+</body>
+</html>
