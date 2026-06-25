@@ -370,20 +370,29 @@ def score_filename(query_words, filename):
         if len(w) >= 2 and w not in EXT_STOPWORDS
     }
 
-    # 한글 공백 제거 후 비교: "화산천마" ↔ "화산 천마" (normal 매칭보다 먼저)
-    file_korean_joined = re.sub(r'[^가-힣a-z]', '', name_no_ext)
-    for qw in query_words:
-        if len(qw) >= 4 and re.match(r'^[가-힣]+$', qw):
-            if qw == file_korean_joined:
-                return 0.9
-            if qw in file_korean_joined or file_korean_joined in qw:
-                return 0.6
+    # ── 한글 공백 무시 비교 ──────────────────────────────────────────
+    # "서리명가 검술천재로 회귀했다" ↔ "서리 명가 검술 천재로 회귀했다"
+    file_joined = re.sub(r'[^가-힣a-z]', '', name_no_ext)
+    query_kor = [qw for qw in query_words
+                 if re.match(r'^[가-힣]+$', qw) and len(qw) >= 2]
+    joined_score = 0.0
+    if query_kor and file_joined:
+        if all(qw in file_joined for qw in query_kor):
+            # 모든 쿼리 단어가 파일 제목(공백 제거)에 포함 → 제목 일치
+            coverage = sum(len(qw) for qw in query_kor) / len(file_joined)
+            joined_score = 0.7 + 0.25 * min(coverage, 1.0)
+        else:
+            # 긴 단어 개별 체크 (화산천마 ↔ 화산 천마)
+            for qw in query_kor:
+                if len(qw) >= 4:
+                    if qw == file_joined:
+                        joined_score = max(joined_score, 0.9)
+                    elif qw in file_joined or file_joined in qw:
+                        joined_score = max(joined_score, 0.6)
 
-    # 정확 일치
+    # ── 단어 매칭 ────────────────────────────────────────────────────
     common = query_words & file_words
     score = len(common)
-
-    # 부분 포함: "해골"이 "해골병사로" 안에 있는 경우 등
     unmatched = query_words - common
     for qw in unmatched:
         if len(qw) < 2:
@@ -392,9 +401,11 @@ def score_filename(query_words, filename):
             if qw in fw or fw in qw:
                 score += 0.7
                 break
+    normal_score = score / max(len(query_words), len(file_words), 1) if score > 0 else 0.0
 
-    if score > 0:
-        return score / max(len(query_words), len(file_words), 1)
+    result = max(joined_score, normal_score)
+    if result > 0:
+        return result
 
     for word in query_words:
         if len(word) >= 4 and word in name_no_ext:
@@ -647,14 +658,13 @@ def search():
 
         is_exact = bool(query_words) and query_words <= (raw_words | clean_words)
         if not is_exact:
-            # 한글 공백 제거 비교: "화산천마" ↔ "화산 천마"
+            # 한글 공백 제거 비교: 모든 쿼리 단어가 파일 joined 제목에 포함되면 exact
             raw_joined = re.sub(r'[^가-힣a-z]', '', join_single_syllables(Path(f).stem.lower()))
             clean_joined = re.sub(r'[^가-힣a-z]', '', join_single_syllables(cstem.lower())) if cstem else ""
-            is_exact = any(
-                len(qw) >= 4 and re.match(r'^[가-힣]+$', qw)
-                and (qw == raw_joined or qw == clean_joined)
-                for qw in query_words
-            )
+            qkor = [qw for qw in query_words if re.match(r'^[가-힣]+$', qw) and len(qw) >= 2]
+            if qkor:
+                is_exact = (all(qw in raw_joined for qw in qkor) or
+                            all(qw in clean_joined for qw in qkor))
         if is_exact:
             exact.append((score, f))
         else:
@@ -1727,8 +1737,10 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#1e
 .exact{background:#a6e3a1;border-radius:6px;margin-bottom:2px;border-bottom:none;padding:10px 8px}
 .exact .item-name{color:#1e1e2e}
 .exact .item-meta,.exact .item-size{color:#2d6a4f}
-.more-btn{display:block;width:100%;margin-top:6px;padding:8px;background:#313244;border:1px solid #45475a;border-radius:6px;color:#cdd6f4;font-size:13px;cursor:pointer;text-align:center}
-.more-btn:active{background:#45475a}
+.det-btn{background:none;border:none;color:#89b4fa;font-size:15px;cursor:pointer;padding:0 4px;flex-shrink:0;margin-left:2px}
+.det-btn:active{color:#cba6f7}
+.related-section{background:#1e1e2e;border-left:2px solid #313244;margin-left:12px;margin-bottom:4px}
+.related-section .item{font-size:13px;padding:6px 8px}
 .del-btn{background:none;border:none;color:#45475a;font-size:16px;cursor:pointer;padding:0 4px;flex-shrink:0}
 .del-btn:active{color:#f38ba8}
 .back-btn{background:none;border:none;color:#89b4fa;font-size:15px;cursor:pointer;padding:0 4px;flex-shrink:0}
@@ -1774,6 +1786,47 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
 
 const qEl=document.getElementById('q');
 qEl.addEventListener('keydown',e=>{if(e.key==='Enter')doSearch();});
+function stripEp(name){
+  // 파일명에서 화수·완결 정보 제거 → 순수 제목
+  return name.replace(/\\.txt$/i,'')
+    .replace(/\\s*\\d+[-~]\\d+.*$/,'')
+    .replace(/\\s*(완결?|미완|에필|후기|외전)\\s*$/,'')
+    .trim();
+}
+
+function renderItem(item, isRelated){
+  const name=typeof item==='object'?item.name:item;
+  const d=document.createElement('div');
+  d.className='item'+(item.ex?' exact':'')+(isRelated?' related':'');
+  const title=name.replace(/\\.txt$/i,'');
+  const size=item.size?item.size+' MB':'';
+  d.innerHTML='<div class="item-info"><div class="item-name">'+title+'</div></div>'
+    +'<span class="item-size">'+size+'</span>';
+  // 자세히보기 버튼 (관련 파일 검색)
+  const detBtn=document.createElement('button');
+  detBtn.className='det-btn';detBtn.textContent='⊕';detBtn.title='관련 파일 보기';
+  detBtn.addEventListener('click',e=>{
+    e.stopPropagation();
+    const existing=d.nextElementSibling;
+    if(existing&&existing.classList.contains('related-section')){existing.remove();return;}
+    const sec=document.createElement('div');sec.className='related-section';
+    sec.innerHTML='<div class="empty">검색 중...</div>';
+    d.insertAdjacentElement('afterend',sec);
+    const cleanTitle=stripEp(name);
+    fetch(S+'/search?text='+encodeURIComponent(cleanTitle)).then(r=>r.json()).then(rel=>{
+      sec.innerHTML='';
+      const relItems=[...(rel.exact||[]).map(i=>({...i,ex:true})),...(rel.partial||[])]
+        .filter(i=>(typeof i==='object'?i.name:i).toLowerCase().endsWith('.txt'))
+        .filter(i=>(typeof i==='object'?i.name:i)!==name);
+      if(!relItems.length){sec.innerHTML='<div class="empty">관련 파일 없음</div>';return;}
+      relItems.forEach(ri=>sec.appendChild(renderItem(ri,true)));
+    });
+  });
+  d.appendChild(detBtn);
+  d.addEventListener('click',()=>openViewer(name));
+  return d;
+}
+
 function doSearch(){
   const q=qEl.value.trim();if(!q)return;
   const res=document.getElementById('results');
@@ -1783,27 +1836,7 @@ function doSearch(){
     const items=[...(data.exact||[]).map(i=>({...i,ex:true})),...(data.partial||[])];
     const txtItems=items.filter(i=>(typeof i==='object'?i.name:i).toLowerCase().endsWith('.txt'));
     if(!txtItems.length){res.innerHTML='<div class="empty">결과 없음</div>';return;}
-    const LIMIT=10;
-    function renderItem(item){
-      const name=typeof item==='object'?item.name:item;
-      const d=document.createElement('div');
-      d.className='item'+(item.ex?' exact':'');
-      d.innerHTML='<div class="item-info"><div class="item-name">'+name.replace(/\\.txt$/i,'')+'</div></div>'
-        +'<span class="item-size">'+(item.size?item.size+' MB':'')+'</span>';
-      d.addEventListener('click',()=>openViewer(name));
-      return d;
-    }
-    txtItems.slice(0,LIMIT).forEach(i=>res.appendChild(renderItem(i)));
-    if(txtItems.length>LIMIT){
-      const more=document.createElement('button');
-      more.className='more-btn';
-      more.textContent='더 보기 ('+(txtItems.length-LIMIT)+'개 더)';
-      more.addEventListener('click',()=>{
-        more.remove();
-        txtItems.slice(LIMIT).forEach(i=>res.appendChild(renderItem(i)));
-      });
-      res.appendChild(more);
-    }
+    txtItems.forEach(i=>res.appendChild(renderItem(i,false)));
   }).catch(()=>{res.innerHTML='<div class="empty">오류</div>';});
 }
 
