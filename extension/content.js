@@ -735,7 +735,17 @@
         .then(data => {
           if (signal.aborted) return;
           const exact = data.exact || [], partial = data.partial || [];
-          const cat = exact.length > 0 ? "match" : partial.length > 0 ? "need" : "none";
+          let cat;
+          if (exact.length > 0) {
+            // 에피소드 번호 비교: 모든 exact 파일의 에피소드가 다운로드와 다르면 확인필요
+            const epMismatch = pageEp !== null && exact.every(it => {
+              const fEp = extractEpNum(typeof it === "object" ? it.name : it);
+              return fEp !== null && fEp !== pageEp;
+            });
+            cat = epMismatch ? "need" : "match";
+          } else {
+            cat = partial.length > 0 ? "need" : "none";
+          }
 
           // 탭 카운터 업데이트
           counts[cat].total++; counts[cat].shown++;
