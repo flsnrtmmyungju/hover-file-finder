@@ -3,7 +3,6 @@
 
 
   const SERVER = "http://localhost:7823/search";
-  const DEBOUNCE_MS = 400;
   const MIN_TEXT_LEN = 3;
   const OVERLAY_ID = "__fhf_overlay__";
 
@@ -14,7 +13,6 @@
   let mouseX = 0;
   let mouseY = 0;
   let dedupActive = false;
-  let overlayHovered = false;
   let hoveredAttachItem = null;
   let _cbarRestoreFn = null;
   let _suppressHashNav = false;
@@ -35,20 +33,18 @@
       fontFamily: "'Segoe UI', system-ui, sans-serif",
       fontSize: "13px",
       lineHeight: "1.5",
-      width: "max-content",
-      maxWidth: "90vw",
-      maxHeight: "280px",
+      width: "420px",
+      maxHeight: "82vh",
       overflowY: "auto",
       boxShadow: "0 6px 24px rgba(0,0,0,.7)",
       display: "none",
       pointerEvents: "auto",
       userSelect: "none",
-      left: "0px",
-      top: "0px",
+      right: "8px",
+      top: "60px",
       boxSizing: "border-box",
     });
-    el.addEventListener("mouseenter", () => { overlayHovered = true; clearTimeout(hideTimer); });
-    el.addEventListener("mouseleave", () => { overlayHovered = false; });
+    el.addEventListener("mouseenter", () => { clearTimeout(hideTimer); });
     document.body.appendChild(el);
     return el;
   }
@@ -58,139 +54,6 @@
       overlay = buildOverlay();
     }
     return overlay;
-  }
-
-  function makeRow(item, isExact) {
-    const name = typeof item === "object" ? item.name : item;
-    const size = typeof item === "object" ? item.size : null;
-    const row = document.createElement("div");
-    Object.assign(row.style, {
-      display: "flex",
-      alignItems: "center",
-      padding: "4px 6px",
-      borderTop: "1px solid #313244",
-      fontSize: "12px",
-      background: isExact ? "#a6e3a1" : "transparent",
-      borderRadius: isExact ? "4px" : "0",
-      marginBottom: isExact ? "2px" : "0",
-      gap: "6px",
-    });
-
-    const label = document.createElement("span");
-    Object.assign(label.style, {
-      flex: "1",
-      whiteSpace: "nowrap",
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-      color: isExact ? "#1e1e2e" : "#cdd6f4",
-    });
-    label.title = name;
-    label.textContent = name;
-
-    // 용량 표시
-    if (size !== null) {
-      const sizeEl = document.createElement("span");
-      Object.assign(sizeEl.style, {
-        flexShrink: "0", fontSize: "10px",
-        color: isExact ? "#2d6a4f" : "#6c7086",
-        whiteSpace: "nowrap",
-      });
-      sizeEl.textContent = `${size}MB`;
-      row.appendChild(sizeEl);
-    }
-
-    // 수정 버튼
-    const editBtn = document.createElement("span");
-    editBtn.textContent = "✏";
-    Object.assign(editBtn.style, {
-      cursor: "pointer", flexShrink: "0",
-      opacity: isExact ? "0.7" : "0.5", fontSize: "12px",
-      filter: isExact ? "brightness(0.3)" : "none",
-    });
-    editBtn.title = "이름 수정";
-    editBtn.addEventListener("mouseenter", () => { editBtn.style.opacity = "1"; editBtn.style.filter = "none"; });
-    editBtn.addEventListener("mouseleave", () => { editBtn.style.opacity = isExact ? "0.7" : "0.5"; editBtn.style.filter = isExact ? "brightness(0.3)" : "none"; });
-    editBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const ext = name.includes(".") ? name.slice(name.lastIndexOf(".")) : "";
-      const stem = ext ? name.slice(0, name.lastIndexOf(".")) : name;
-      const input = document.createElement("input");
-      Object.assign(input.style, {
-        flex: "1", background: "#313244", color: "#cdd6f4",
-        border: "1px solid #89b4fa", borderRadius: "3px",
-        fontSize: "12px", padding: "1px 4px", outline: "none", minWidth: "0",
-      });
-      input.value = stem;
-      label.replaceWith(input);
-      input.focus();
-      input.select();
-
-      let committed = false;
-
-      async function commit() {
-        if (committed) return;
-        committed = true;
-        const newStem = input.value.trim();
-        if (!newStem || newStem + ext === name) { input.replaceWith(label); return; }
-        const newName = newStem + ext;
-        try {
-          const res = await fetch(
-            `http://localhost:7823/rename-file?old=${encodeURIComponent(name)}&new=${encodeURIComponent(newName)}`,
-            { method: "POST" }
-          );
-          const data = await res.json();
-          if (data.ok) { label.textContent = newName; label.title = newName; }
-          else { alert("실패: " + (data.error || "오류")); committed = false; }
-        } catch { alert("서버 오류"); committed = false; }
-        input.replaceWith(label);
-      }
-
-      input.addEventListener("keydown", (e) => {
-        e.stopPropagation();
-        if (e.key === "Enter") { e.preventDefault(); commit(); }
-        if (e.key === "Escape") { committed = true; input.replaceWith(label); }
-      });
-      input.addEventListener("blur", () => { if (!committed) commit(); });
-    });
-
-    const delBtn = document.createElement("span");
-    delBtn.textContent = "🗑";
-    Object.assign(delBtn.style, {
-      cursor: "pointer",
-      flexShrink: "0",
-      opacity: isExact ? "0.7" : "0.5",
-      fontSize: "13px",
-      filter: isExact ? "brightness(0.3)" : "none",
-    });
-    delBtn.title = "삭제";
-    delBtn.addEventListener("mouseenter", () => { delBtn.style.opacity = "1"; delBtn.style.filter = "none"; });
-    delBtn.addEventListener("mouseleave", () => { delBtn.style.opacity = isExact ? "0.7" : "0.5"; delBtn.style.filter = isExact ? "brightness(0.3)" : "none"; });
-    delBtn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      if (!confirm(`"${name}"\n이 파일을 삭제하시겠습니까?`)) return;
-      try {
-        const res = await fetch(
-          `http://localhost:7823/delete?filename=${encodeURIComponent(name)}`,
-          { method: "POST" }
-        );
-        const data = await res.json();
-        if (data.ok) {
-          row.style.opacity = "0.3";
-          row.style.textDecoration = "line-through";
-          label.textContent = `✓ 삭제됨: ${name}`;
-          delBtn.remove();
-        } else {
-          alert("삭제 실패: " + (data.error || "알 수 없는 오류"));
-        }
-      } catch {
-        alert("서버 오류");
-      }
-    });
-
-    row.appendChild(label);
-    row.appendChild(editBtn);
-    row.appendChild(delBtn);
-    return row;
   }
 
   function makeActionBtn(label, color, url, onResult) {
@@ -756,23 +619,11 @@
       fontWeight: "700", cursor: "pointer", boxSizing: "border-box",
     };
 
-    // 오버레이 위치 잡기
-    const GAP = 12;
-    el.style.left = mouseX + "px";
-    el.style.top = (mouseY + GAP) + "px";
     el.style.setProperty("display", "block", "important");
     el.style.setProperty("visibility", "visible", "important");
     el.style.setProperty("opacity", "1", "important");
     el.scrollTop = 0;
     clearTimeout(hideTimer);
-    requestAnimationFrame(() => {
-      const rect = el.getBoundingClientRect();
-      let left = parseFloat(el.style.left), top = parseFloat(el.style.top);
-      if (rect.right  > window.innerWidth  - 8) left = window.innerWidth  - rect.width  - 8;
-      if (rect.bottom > window.innerHeight - 8) top  = mouseY - rect.height - 4;
-      if (left < 4) left = 4; if (top < 4) top = 4;
-      el.style.left = left + "px"; el.style.top = top + "px";
-    });
 
     // 각 항목을 즉시 렌더 후 개별 fetch
     items.forEach(({ text: searchText, displayName, size, dlEl }) => {
@@ -1106,80 +957,6 @@
     }
   }
 
-  function show(exact, partial) {
-    const el = getOverlay();
-    el.innerHTML = "";
-
-    el.appendChild(makeTopButtons());
-
-    const total = exact.length + partial.length;
-
-    // 헤더 행: 카운트 + 닫기 버튼
-    const headerRow = document.createElement("div");
-    Object.assign(headerRow.style, { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" });
-
-    const header = document.createElement("div");
-    Object.assign(header.style, { color: "#89b4fa", fontWeight: "700", fontSize: "11px" });
-    header.textContent = `📁 정확 일치 ${exact.length}개 / 전체 ${total}개`;
-
-    const closeBtn = document.createElement("span");
-    closeBtn.textContent = "✕";
-    Object.assign(closeBtn.style, { cursor: "pointer", color: "#6c7086", fontSize: "14px", lineHeight: "1", paddingLeft: "8px" });
-    closeBtn.addEventListener("mouseenter", () => closeBtn.style.color = "#cdd6f4");
-    closeBtn.addEventListener("mouseleave", () => closeBtn.style.color = "#6c7086");
-    closeBtn.addEventListener("click", (e) => { e.stopPropagation(); hide(); });
-
-    headerRow.appendChild(header);
-    headerRow.appendChild(closeBtn);
-    el.appendChild(headerRow);
-
-    // 정확 일치 목록 (초록 배경)
-    if (exact.length > 0) {
-      exact.forEach((name) => el.appendChild(makeRow(name, true)));
-    }
-
-    // 구분선
-    if (exact.length > 0 && partial.length > 0) {
-      const sep = document.createElement("div");
-      Object.assign(sep.style, { borderTop: "1px solid #45475a", margin: "4px 0" });
-      el.appendChild(sep);
-    }
-
-    // 부분 일치 목록
-    if (partial.length > 0) {
-      partial.forEach((name) => el.appendChild(makeRow(name, false)));
-    }
-
-    // 결과 없음
-    if (total === 0) {
-      const msg = document.createElement("div");
-      Object.assign(msg.style, { color: "#6c7086", fontSize: "12px" });
-      msg.textContent = "일치하는 파일 없음";
-      el.appendChild(msg);
-    }
-
-    const GAP = 12;
-    el.style.left = mouseX + "px";
-    el.style.top = (mouseY + GAP) + "px";
-    el.style.setProperty("display", "block", "important");
-    el.style.setProperty("visibility", "visible", "important");
-    el.style.setProperty("opacity", "1", "important");
-    el.scrollTop = 0;
-    clearTimeout(hideTimer);
-
-    requestAnimationFrame(() => {
-      const rect = el.getBoundingClientRect();
-      let left = parseFloat(el.style.left);
-      let top  = parseFloat(el.style.top);
-      if (rect.right  > window.innerWidth  - 8) left = window.innerWidth  - rect.width  - 8;
-      if (rect.bottom > window.innerHeight - 8) top  = mouseY - rect.height - 4;
-      if (left < 4) left = 4;
-      if (top  < 4) top  = 4;
-      el.style.left = left + "px";
-      el.style.top  = top  + "px";
-    });
-  }
-
   function hide() {
     if (dedupActive) return;
     clearTimeout(hideTimer);
@@ -1207,8 +984,6 @@
     Object.assign(msg.style, { color: "#6c7086", fontSize: "12px", padding: "4px 0" });
     msg.textContent = "검색 중...";
     el.appendChild(msg);
-    el.style.left = mouseX + "px";
-    el.style.top = (mouseY + 12) + "px";
     el.style.setProperty("display", "block", "important");
   }
 
@@ -1230,10 +1005,28 @@
     if (dedupActive) return;
     if (overlay?.contains(e.target)) return;
 
-    // attach-item 위에서 우클릭 → 단일 파일 검색
+    // 디테일 페이지 (/novel-board/숫자) → 우클릭하면 바로 전체 첨부 파일 표시
+    if (/\/novel-board\/\d+/.test(location.pathname)) {
+      const pageAttachItems = getPageAttachItems();
+      if (pageAttachItems.length > 0) {
+        const items = pageAttachItems.map(({ rawName, size, dlEl }, i) => {
+          const searchText = rawName.replace(/\.[^.]+$/, '').trim();
+          return searchText.length >= MIN_TEXT_LEN ? { text: searchText, displayName: rawName, size, dlEl, siteIndex: i + 1 } : null;
+        }).filter(Boolean);
+        if (items.length > 0) {
+          e.preventDefault();
+          lastText = "__multi__";
+          showMultiple(items);
+          buildCommentBar(items);
+        }
+      }
+      return;
+    }
+
+    // 목록 페이지 등 그 외: attach-item 위에서 우클릭 → 단일 파일 검색
     const item = hoveredAttachItem;
     if (item) {
-      const { rawName, dlEl } = getItemInfo(item);
+      const { rawName } = getItemInfo(item);
       const searchText = rawName.replace(/\.[^.]+$/, '').trim();
       if (searchText.length >= MIN_TEXT_LEN) {
         clearMulti();
@@ -1241,22 +1034,6 @@
         lastText = searchText;
         clearTimeout(timer);
         fetchAndShow(searchText);
-        return;
-      }
-    }
-
-    // 페이지에 첨부파일 목록이 있으면 전체 자동 읽기
-    const pageAttachItems = getPageAttachItems();
-    if (pageAttachItems.length > 0) {
-      const items = pageAttachItems.map(({ rawName, size, dlEl }, i) => {
-        const searchText = rawName.replace(/\.[^.]+$/, '').trim();
-        return searchText.length >= MIN_TEXT_LEN ? { text: searchText, displayName: rawName, size, dlEl, siteIndex: i + 1 } : null;
-      }).filter(Boolean);
-      if (items.length > 0) {
-        e.preventDefault();
-        lastText = "__multi__";
-        showMultiple(items);
-        buildCommentBar(items);
         return;
       }
     }
@@ -1300,6 +1077,5 @@
     if (_suppressHashNav && e.target.matches('a[href="#"]')) {
       e.preventDefault();
     }
-    if (!overlay?.contains(e.target)) hide();
   });
 })();
