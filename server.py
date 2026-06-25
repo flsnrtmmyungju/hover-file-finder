@@ -967,11 +967,125 @@ def deduplicate_scan():
     return jsonify({"items": items, "total": len(items)})
 
 
+@app.route("/archive-scan", methods=["GET", "POST"])
+def archive_scan():
+    """소설 폴더 내부 중복 스캔
+    - hash_groups : 바이트 완전 동일 파일 그룹
+    - title_groups: 화수 제거 후 제목이 같은 파일 그룹 (같은 소설 여러 파일)
+    """
+    import hashlib as _hl
+
+    config = load_config()
+    downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
+    novel_dir = os.path.join(downloads_dir, config.get("archive_folder", "archive"))
+
+    if not os.path.isdir(novel_dir):
+        return jsonify({"error": "archive 폴더가 없습니다"}), 404
+
+    # ── 파일 목록 수집 ─────────────────────────────────────────────
+    all_files = []
+    for root, _, files in os.walk(novel_dir):
+        for f in files:
+            path = os.path.join(root, f)
+            try:
+                all_files.append({"name": f, "path": path, "size": os.path.getsize(path)})
+            except OSError:
+                pass
+
+    # ── A. 해시 기반 (바이트 동일) ────────────────────────────────
+    # 크기가 같은 파일끼리만 해시 → 대부분 파일은 크기가 달라 건너뜀
+    size_map = {}
+    for fi in all_files:
+        size_map.setdefault(fi["size"], []).append(fi)
+
+    hash_groups = []
+    for size, group in size_map.items():
+        if len(group) < 2:
+            continue
+        hash_map = {}
+        for fi in group:
+            try:
+                h = _hl.sha256()
+                with open(fi["path"], "rb") as fp:
+                    for chunk in iter(lambda: fp.read(65536), b""):
+                        h.update(chunk)
+                hash_map.setdefault(h.hexdigest(), []).append(fi)
+            except OSError:
+                pass
+        for digest, dupes in hash_map.items():
+            if len(dupes) >= 2:
+                hash_groups.append({
+                    "hash": digest[:12],
+                    "size_mb": round(size / (1024 * 1024), 1),
+                    "files": [{"name": f["name"], "path": f["path"]} for f in dupes],
+                })
+
+    # ── B. 제목 기반 (같은 소설 여러 파일) ────────────────────────
+    def _norm_title(filename):
+        """화수·완결 표시 제거 후 정규화된 제목"""
+        stem = Path(filename).stem
+        s = re.sub(r'\s*\d+[-~]\d+.*$', '', stem).strip()
+        s = re.sub(r'\s*(완결?|미완|에필로그?|후기|외전|번외)\s*$', '', s, flags=re.I).strip()
+        return re.sub(r'\s+', ' ', s).lower()
+
+    def _ep_range(filename):
+        m = re.search(r'(\d+)[-~](\d+)', Path(filename).stem)
+        return f"{m.group(1)}-{m.group(2)}" if m else None
+
+    title_map = {}
+    for fi in all_files:
+        t = _norm_title(fi["name"])
+        if len(t) < 2:
+            continue
+        title_map.setdefault(t, []).append(fi)
+
+    title_groups = []
+    for title, files in title_map.items():
+        if len(files) < 2:
+            continue
+        file_list = sorted([
+            {
+                "name": f["name"],
+                "path": f["path"],
+                "size_mb": round(f["size"] / (1024 * 1024), 1),
+                "ep": _ep_range(f["name"]),
+            }
+            for f in files
+        ], key=lambda x: x["name"])
+
+        # 에피소드 범위가 완전히 같은 쌍 → 확실한 중복 표시
+        ep_counts = {}
+        for fi in file_list:
+            if fi["ep"]:
+                ep_counts[fi["ep"]] = ep_counts.get(fi["ep"], 0) + 1
+        has_exact_dupe = any(v >= 2 for v in ep_counts.values())
+
+        title_groups.append({
+            "title": title,
+            "count": len(files),
+            "has_exact_dupe": has_exact_dupe,
+            "files": file_list,
+        })
+
+    # 확실한 중복 먼저, 그 다음 파일 수 많은 순
+    title_groups.sort(key=lambda x: (not x["has_exact_dupe"], -x["count"]))
+
+    return jsonify({
+        "hash_groups":  hash_groups,
+        "title_groups": title_groups,
+        "hash_dupes":   sum(len(g["files"]) - 1 for g in hash_groups),
+        "title_dupes":  len(title_groups),
+        "scanned":      len(all_files),
+    })
+
+
 @app.route("/delete-path", methods=["GET", "POST"])
 def delete_path():
     config = load_config()
     downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
     path = request.args.get("path", "").strip()
+    if not path and request.is_json:
+        path = (request.get_json(silent=True) or {}).get("path", "").strip()
 
     if not path:
         return jsonify({"error": "경로 없음"}), 400
@@ -2104,6 +2218,130 @@ fetch(S+'/view?filename='+encodeURIComponent(filename))
       acts.appendChild(ok);acts.appendChild(no);loadEl.appendChild(acts);
     }}else{{loadEl.querySelector('span').textContent='파일 로드 실패';}}
   }});
+</script>
+</body>
+</html>"""
+
+
+@app.route("/dupes")
+def dupes_ui():
+    return r"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>중복 파일 스캔</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#1e1e2e;color:#cdd6f4;font-family:'Segoe UI',sans-serif;font-size:14px;padding:20px}
+h1{color:#89b4fa;margin-bottom:16px;font-size:18px}
+h2{color:#cba6f7;font-size:15px;margin:24px 0 10px}
+button{background:#89b4fa;color:#1e1e2e;border:none;padding:10px 24px;border-radius:6px;font-size:14px;font-weight:bold;cursor:pointer}
+button:disabled{background:#45475a;color:#6c7086;cursor:not-allowed}
+button.del{background:#f38ba8;color:#1e1e2e;padding:4px 10px;font-size:12px;border-radius:4px;font-weight:bold}
+button.del:hover{background:#eba0ac}
+#status{margin:12px 0;color:#a6e3a1;min-height:20px}
+.section{margin-bottom:32px}
+.group{background:#313244;border-radius:8px;margin-bottom:10px;overflow:hidden}
+.group-header{padding:10px 14px;display:flex;align-items:center;gap:10px;background:#45475a}
+.group-header .badge{background:#f38ba8;color:#1e1e2e;border-radius:4px;padding:2px 8px;font-size:12px;font-weight:bold}
+.group-header .badge.warn{background:#fab387}
+.file-row{padding:8px 14px;display:flex;align-items:center;gap:10px;border-top:1px solid #45475a}
+.file-row .fname{flex:1;color:#cdd6f4;word-break:break-all;font-size:13px}
+.file-row .meta{color:#6c7086;font-size:12px;white-space:nowrap}
+.empty{color:#6c7086;font-style:italic;padding:8px 0}
+.tabs{display:flex;gap:8px;margin-bottom:16px}
+.tab{padding:8px 18px;border-radius:6px;cursor:pointer;background:#313244;color:#cdd6f4;border:none;font-size:13px}
+.tab.active{background:#89b4fa;color:#1e1e2e;font-weight:bold}
+.panel{display:none}.panel.active{display:block}
+</style>
+</head>
+<body>
+<h1>중복 파일 스캔</h1>
+<button id="scanBtn" onclick="startScan()">스캔 시작</button>
+<div id="status"></div>
+<div id="result" style="display:none">
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('hash')">완전 동일 <span id="hashCount"></span></button>
+    <button class="tab" onclick="showTab('title')">같은 소설 <span id="titleCount"></span></button>
+  </div>
+  <div id="hashPanel" class="panel active"></div>
+  <div id="titlePanel" class="panel"></div>
+</div>
+<script>
+function showTab(t){
+  document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',['hash','title'][i]===t));
+  document.querySelectorAll('.panel').forEach((el,i)=>el.classList.toggle('active',['hashPanel','titlePanel'][i]===t+'Panel'));
+}
+async function startScan(){
+  const btn=document.getElementById('scanBtn');
+  btn.disabled=true;btn.textContent='스캔 중...';
+  document.getElementById('status').textContent='파일 읽는 중...';
+  document.getElementById('result').style.display='none';
+  try{
+    const r=await fetch('/archive-scan',{method:'POST'});
+    const d=await r.json();
+    if(d.error){document.getElementById('status').textContent='오류: '+d.error;return;}
+    document.getElementById('status').textContent=
+      `스캔 완료 — 총 ${d.scanned.toLocaleString()}개 파일 | `+
+      `완전 동일 ${d.hash_dupes}개 | 같은 소설 그룹 ${d.title_dupes}개`;
+    renderHash(d.hash_groups);
+    renderTitle(d.title_groups);
+    document.getElementById('result').style.display='block';
+  }catch(e){
+    document.getElementById('status').textContent='오류: '+e.message;
+  }finally{
+    btn.disabled=false;btn.textContent='다시 스캔';
+  }
+}
+function renderHash(groups){
+  const el=document.getElementById('hashPanel');
+  document.getElementById('hashCount').textContent=groups.length?`(${groups.length}그룹)`:'';
+  if(!groups.length){el.innerHTML='<p class="empty">완전 동일한 파일 없음</p>';return;}
+  el.innerHTML=groups.map((g,gi)=>`
+    <div class="group" id="hg${gi}">
+      <div class="group-header">
+        <span class="badge">완전 동일</span>
+        <span>${g.files.length}개 · ${g.size_mb}MB</span>
+      </div>
+      ${g.files.map((f,fi)=>`
+        <div class="file-row" id="hf${gi}_${fi}">
+          <span class="fname">${f.name}</span>
+          <span class="meta">${f.path}</span>
+          ${fi>0?`<button class="del" onclick="delFile('${f.path.replace(/'/g,"\\'")}','hf${gi}_${fi}')">삭제</button>`:'<span style="color:#a6e3a1;font-size:12px">유지</span>'}
+        </div>`).join('')}
+    </div>`).join('');
+}
+function renderTitle(groups){
+  const el=document.getElementById('titlePanel');
+  document.getElementById('titleCount').textContent=groups.length?`(${groups.length}그룹)`:'';
+  if(!groups.length){el.innerHTML='<p class="empty">같은 제목 파일 없음</p>';return;}
+  el.innerHTML=groups.map((g,gi)=>`
+    <div class="group" id="tg${gi}">
+      <div class="group-header">
+        <span class="badge ${g.has_exact_dupe?'':'warn'}">${g.has_exact_dupe?'중복':'같은 소설'}</span>
+        <strong>${g.title}</strong>
+        <span style="color:#6c7086">${g.count}개</span>
+      </div>
+      ${g.files.map((f,fi)=>`
+        <div class="file-row" id="tf${gi}_${fi}">
+          <span class="fname">${f.name}</span>
+          <span class="meta">${f.ep||''} · ${f.size_mb}MB</span>
+          <button class="del" onclick="delFile('${f.path.replace(/'/g,"\\'")}','tf${gi}_${fi}')">삭제</button>
+        </div>`).join('')}
+    </div>`).join('');
+}
+async function delFile(path,rowId){
+  if(!confirm('삭제하시겠습니까?\n'+path))return;
+  const r=await fetch('/delete-path',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
+  const d=await r.json();
+  if(d.ok||d.deleted){
+    const row=document.getElementById(rowId);
+    if(row)row.remove();
+  }else{
+    alert('삭제 실패: '+(d.error||'알 수 없는 오류'));
+  }
+}
 </script>
 </body>
 </html>"""

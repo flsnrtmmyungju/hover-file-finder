@@ -250,6 +250,16 @@
       "http://localhost:7823/organize",
       (d) => d.error ? "오류" : `✓ ${d.moved}개 이동`
     ));
+    wrap.appendChild(makeActionBtn(
+      "압축풀기", "#a6e3a1",
+      "http://localhost:7823/extract-all",
+      (d) => d.error ? "오류" : `✓ ${d.extracted}개 압축해제`
+    ));
+    wrap.appendChild(makeActionBtn(
+      "epub변환", "#f9e2af",
+      "http://localhost:7823/epub-batch-convert",
+      (d) => d.error ? `오류: ${d.error}` : `✓ ${d.converted}개 변환`
+    ));
     // 중복삭제 버튼 - 컨펌 UI
     const dedupBtn = document.createElement("button");
     dedupBtn.textContent = "중복삭제";
@@ -274,6 +284,31 @@
       setTimeout(() => { dedupBtn.textContent = "중복삭제"; dedupBtn.disabled = false; }, 3000);
     });
     wrap.appendChild(dedupBtn);
+
+    // 전체 중복확인 버튼
+    const archiveBtn = document.createElement("button");
+    archiveBtn.textContent = "전체 중복확인";
+    Object.assign(archiveBtn.style, {
+      flex: "1", padding: "5px 0", background: "#fab387",
+      color: "#1e1e2e", border: "none", borderRadius: "5px",
+      fontWeight: "700", fontSize: "11px", cursor: "pointer",
+    });
+    archiveBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      archiveBtn.textContent = "스캔 중...";
+      archiveBtn.disabled = true;
+      try {
+        const res = await fetch("http://localhost:7823/archive-scan", { method: "POST" });
+        const data = await res.json();
+        if (data.error) { archiveBtn.textContent = "오류"; return; }
+        startArchiveScanFlow(data, archiveBtn);
+      } catch {
+        archiveBtn.textContent = "오류";
+      }
+      setTimeout(() => { archiveBtn.textContent = "전체 중복확인"; archiveBtn.disabled = false; }, 3000);
+    });
+    wrap.appendChild(archiveBtn);
+
     return wrap;
   }
 
@@ -388,6 +423,161 @@
       setTimeout(() => { triggerBtn.textContent = "중복삭제"; triggerBtn.disabled = false; }, 3000);
     });
     el.appendChild(execBtn);
+
+    el.style.setProperty("display", "block", "important");
+    el.scrollTop = 0;
+  }
+
+  function startArchiveScanFlow(data, triggerBtn) {
+    dedupActive = true;
+    triggerBtn.disabled = true;
+    const el = getOverlay();
+    el.innerHTML = "";
+
+    const escHandler = (e) => {
+      if (e.key === "Escape") { closeFlow(); document.removeEventListener("keydown", escHandler); }
+    };
+    document.addEventListener("keydown", escHandler);
+
+    function closeFlow() {
+      dedupActive = false;
+      triggerBtn.textContent = "전체 중복확인";
+      triggerBtn.disabled = false;
+      hide();
+      document.removeEventListener("keydown", escHandler);
+    }
+
+    // 헤더
+    const headerRow = document.createElement("div");
+    Object.assign(headerRow.style, { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" });
+    const hdr = document.createElement("div");
+    Object.assign(hdr.style, { color: "#89b4fa", fontWeight: "700", fontSize: "11px" });
+    hdr.textContent = `스캔 완료 ${data.scanned.toLocaleString()}개 — 완전동일 ${data.hash_dupes}개 / 같은소설 ${data.title_dupes}그룹`;
+    const closeBtn = document.createElement("span");
+    closeBtn.textContent = "✕";
+    Object.assign(closeBtn.style, { cursor: "pointer", color: "#6c7086", fontSize: "14px" });
+    closeBtn.addEventListener("click", (e) => { e.stopPropagation(); closeFlow(); });
+    headerRow.appendChild(hdr);
+    headerRow.appendChild(closeBtn);
+    el.appendChild(headerRow);
+
+    // 탭
+    const tabRow = document.createElement("div");
+    Object.assign(tabRow.style, { display: "flex", gap: "4px", marginBottom: "6px" });
+    const panels = {};
+    [["hash", `완전동일 (${data.hash_groups.length}그룹)`, "#f38ba8"],
+     ["title", `같은소설 (${data.title_groups.length}그룹)`, "#fab387"]].forEach(([key, label, color], idx) => {
+      const tab = document.createElement("button");
+      tab.textContent = label;
+      Object.assign(tab.style, {
+        flex: "1", padding: "3px 0", border: "none", borderRadius: "4px",
+        fontSize: "10px", fontWeight: "700", cursor: "pointer",
+        background: idx === 0 ? color : "#45475a",
+        color: idx === 0 ? "#1e1e2e" : "#cdd6f4",
+      });
+      const panel = document.createElement("div");
+      panel.style.display = idx === 0 ? "block" : "none";
+      panels[key] = { tab, panel };
+      tab.addEventListener("click", (e) => {
+        e.stopPropagation();
+        Object.entries(panels).forEach(([k, { tab: t, panel: p }], i) => {
+          const active = k === key;
+          p.style.display = active ? "block" : "none";
+          t.style.background = active ? [["#f38ba8"], ["#fab387"]][i][0] : "#45475a";
+          t.style.color = active ? "#1e1e2e" : "#cdd6f4";
+        });
+      });
+      tabRow.appendChild(tab);
+      el.appendChild(tab); // append later together
+    });
+    el.appendChild(tabRow);
+
+    // ── 완전동일 패널 ────────────────────────────────────────────
+    const hashPanel = panels["hash"].panel;
+    if (data.hash_groups.length === 0) {
+      hashPanel.innerHTML = '<div style="color:#6c7086;font-size:11px;padding:4px 0">완전 동일한 파일 없음</div>';
+    } else {
+      data.hash_groups.forEach((g) => {
+        const grpDiv = document.createElement("div");
+        Object.assign(grpDiv.style, { marginBottom: "6px", borderTop: "1px solid #45475a", paddingTop: "4px" });
+        const ghdr = document.createElement("div");
+        Object.assign(ghdr.style, { color: "#f38ba8", fontSize: "10px", fontWeight: "700", marginBottom: "3px" });
+        ghdr.textContent = `${g.files.length}개 동일 · ${g.size_mb}MB`;
+        grpDiv.appendChild(ghdr);
+        g.files.forEach((f, fi) => {
+          const row = document.createElement("div");
+          Object.assign(row.style, { display: "flex", alignItems: "center", gap: "6px", padding: "2px 0", fontSize: "11px" });
+          const nm = document.createElement("span");
+          nm.style.flex = "1"; nm.style.overflow = "hidden"; nm.style.textOverflow = "ellipsis"; nm.style.whiteSpace = "nowrap";
+          nm.textContent = (fi === 0 ? "✓ " : "🗑 ") + f.name;
+          nm.style.color = fi === 0 ? "#a6e3a1" : "#cdd6f4";
+          row.appendChild(nm);
+          if (fi > 0) {
+            const db = document.createElement("button");
+            db.textContent = "삭제";
+            Object.assign(db.style, { flexShrink: "0", padding: "1px 6px", background: "#f38ba8", color: "#1e1e2e", border: "none", borderRadius: "3px", fontSize: "10px", fontWeight: "700", cursor: "pointer" });
+            db.addEventListener("click", async (e) => {
+              e.stopPropagation();
+              if (!confirm(`삭제?\n${f.name}`)) return;
+              const r = await fetch("http://localhost:7823/delete-path", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: f.path }) });
+              const d = await r.json();
+              if (d.ok) { row.style.opacity = "0.3"; nm.textContent = "✓ 삭제: " + f.name; db.remove(); }
+              else alert("삭제 실패: " + (d.error || "오류"));
+            });
+            row.appendChild(db);
+          }
+          grpDiv.appendChild(row);
+        });
+        hashPanel.appendChild(grpDiv);
+      });
+    }
+    el.appendChild(hashPanel);
+
+    // ── 같은소설 패널 ────────────────────────────────────────────
+    const titlePanel = panels["title"].panel;
+    if (data.title_groups.length === 0) {
+      titlePanel.innerHTML = '<div style="color:#6c7086;font-size:11px;padding:4px 0">같은 제목 파일 없음</div>';
+    } else {
+      data.title_groups.forEach((g) => {
+        const grpDiv = document.createElement("div");
+        Object.assign(grpDiv.style, { marginBottom: "6px", borderTop: "1px solid #45475a", paddingTop: "4px" });
+        const ghdr = document.createElement("div");
+        Object.assign(ghdr.style, { display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px" });
+        const badge = document.createElement("span");
+        badge.textContent = g.has_exact_dupe ? "중복" : "같은소설";
+        Object.assign(badge.style, { background: g.has_exact_dupe ? "#f38ba8" : "#fab387", color: "#1e1e2e", borderRadius: "3px", padding: "0 5px", fontSize: "10px", fontWeight: "700", flexShrink: "0" });
+        const title = document.createElement("span");
+        title.style.fontSize = "11px"; title.style.fontWeight = "700"; title.style.overflow = "hidden"; title.style.textOverflow = "ellipsis"; title.style.whiteSpace = "nowrap";
+        title.textContent = g.title;
+        ghdr.appendChild(badge); ghdr.appendChild(title);
+        grpDiv.appendChild(ghdr);
+        g.files.forEach((f) => {
+          const row = document.createElement("div");
+          Object.assign(row.style, { display: "flex", alignItems: "center", gap: "6px", padding: "2px 0", fontSize: "11px" });
+          const nm = document.createElement("span");
+          nm.style.flex = "1"; nm.style.overflow = "hidden"; nm.style.textOverflow = "ellipsis"; nm.style.whiteSpace = "nowrap";
+          nm.textContent = f.name;
+          const meta = document.createElement("span");
+          meta.style.color = "#6c7086"; meta.style.fontSize = "10px"; meta.style.flexShrink = "0"; meta.style.whiteSpace = "nowrap";
+          meta.textContent = (f.ep || "") + (f.ep ? " " : "") + f.size_mb + "MB";
+          const db = document.createElement("button");
+          db.textContent = "삭제";
+          Object.assign(db.style, { flexShrink: "0", padding: "1px 6px", background: "#f38ba8", color: "#1e1e2e", border: "none", borderRadius: "3px", fontSize: "10px", fontWeight: "700", cursor: "pointer" });
+          db.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            if (!confirm(`삭제?\n${f.name}`)) return;
+            const r = await fetch("http://localhost:7823/delete-path", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: f.path }) });
+            const d = await r.json();
+            if (d.ok) { row.style.opacity = "0.3"; nm.textContent = "✓ 삭제: " + f.name; db.remove(); }
+            else alert("삭제 실패: " + (d.error || "오류"));
+          });
+          row.appendChild(nm); row.appendChild(meta); row.appendChild(db);
+          grpDiv.appendChild(row);
+        });
+        titlePanel.appendChild(grpDiv);
+      });
+    }
+    el.appendChild(titlePanel);
 
     el.style.setProperty("display", "block", "important");
     el.scrollTop = 0;

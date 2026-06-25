@@ -10,7 +10,7 @@
   ],
   "content_scripts": [
     {
-      "matches": ["https://*.com/*"],
+      "matches": ["https://*/*", "http://*/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
