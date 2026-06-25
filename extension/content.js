@@ -841,9 +841,15 @@
         const panel = document.createElement("div");
         panel.style.display = "block";
 
+        // 페이지 다운로드 항목의 화수
+        const pageEp = extractEpNum(rawName);
+        // 다운로드 버튼 옆 "최신" 배지 (나중에 조건부 삽입)
+        let dlNewBadge = null;
+
         const makeFileRow = (fileItem, isExact) => {
           const fname = typeof fileItem === "object" ? fileItem.name : fileItem;
           const fsize = typeof fileItem === "object" ? fileItem.size : null;
+          const fileEp = extractEpNum(fname);
           const row = document.createElement("div");
           Object.assign(row.style, {
             display: "flex", alignItems: "center", gap: "5px",
@@ -861,6 +867,28 @@
             Object.assign(fs.style, { flexShrink: "0", color: "#6c7086" });
             fs.textContent = fsize + "MB";
             row.appendChild(fs);
+          }
+          // 화수 비교 배지
+          if (pageEp !== null && fileEp !== null) {
+            if (fileEp > pageEp) {
+              // 기존 파일이 최신
+              const badge = document.createElement("span");
+              badge.textContent = `최신 (${fileEp})`;
+              Object.assign(badge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#a6e3a1", color: "#1e1e2e", borderRadius: "3px", padding: "1px 5px" });
+              row.appendChild(badge);
+            } else if (pageEp > fileEp) {
+              // 다운로드가 최신 → 기존 파일에 "구버전" 표시
+              const badge = document.createElement("span");
+              badge.textContent = `구버전 (${fileEp})`;
+              Object.assign(badge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#45475a", color: "#cdd6f4", borderRadius: "3px", padding: "1px 5px" });
+              row.appendChild(badge);
+              // 다운로드 버튼 옆 "최신" 배지 예약
+              if (!dlNewBadge) {
+                dlNewBadge = document.createElement("span");
+                dlNewBadge.textContent = `최신 (${pageEp})`;
+                Object.assign(dlNewBadge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#fab387", color: "#1e1e2e", borderRadius: "3px", padding: "1px 5px" });
+              }
+            }
           }
           const delBtn = document.createElement("button");
           delBtn.textContent = "🗑";
@@ -928,6 +956,13 @@
           panel.appendChild(none);
         }
 
+        // 다운로드가 최신이면 topRow에 배지 삽입 (다운로드 버튼 앞)
+        if (dlNewBadge) {
+          const dlBtn = topRow.querySelector("button");
+          if (dlBtn) topRow.insertBefore(dlNewBadge, dlBtn);
+          else topRow.appendChild(dlNewBadge);
+        }
+
         // 클릭 시 접기/펼치기
         let expanded = true;
         topRow.addEventListener("click", (e) => {
@@ -973,6 +1008,18 @@
   }
 
   // ── 댓글 + 추천 바 ──────────────────────────────────────────────
+  function extractEpNum(name) {
+    // "1-594", "1~594" → 594 (끝 화수)
+    const range = name.match(/\b(\d+)[-~](\d+)\b/);
+    if (range) return parseInt(range[2], 10);
+    // "225화" → 225
+    const ep = name.match(/(\d+)\s*화\b/);
+    if (ep) return parseInt(ep[1], 10);
+    // 2자리 이상 독립 숫자 중 최대값
+    const nums = [...name.matchAll(/\b(\d{2,})\b/g)].map(m => parseInt(m[1], 10));
+    return nums.length ? Math.max(...nums) : null;
+  }
+
   function filterNovelTitle(raw) {
     return raw
       .replace(/\.[^.]+$/, '')          // 확장자 제거
