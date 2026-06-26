@@ -737,12 +737,14 @@
           const exact = data.exact || [], partial = data.partial || [];
           let cat;
           if (exact.length > 0) {
-            // 에피소드 번호 비교: 모든 exact 파일의 에피소드가 다운로드와 다르면 확인필요
-            const epMismatch = pageEp !== null && exact.every(it => {
+            // 일치 조건: 회차 둘 다 있고 같음 OR 둘 다 없음
+            // 확인필요: 한쪽만 회차 있음, 또는 둘 다 있지만 다름
+            const anyEpMatch = exact.some(it => {
               const fEp = extractEpNum(typeof it === "object" ? it.name : it);
-              return fEp !== null && fEp !== pageEp;
+              return (pageEp !== null && fEp !== null && fEp === pageEp) ||
+                     (pageEp === null && fEp === null);
             });
-            cat = epMismatch ? "need" : "match";
+            cat = anyEpMatch ? "match" : "need";
           } else {
             cat = partial.length > 0 ? "need" : "none";
           }
