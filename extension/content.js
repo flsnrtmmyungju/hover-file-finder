@@ -805,7 +805,17 @@
               row.appendChild(fs);
             }
             if (pageEp !== null && fileEp !== null) {
-              if (fileEp > pageEp) {
+              if (fileEp === pageEp) {
+                const badge = document.createElement("span");
+                badge.textContent = `일치 (${fileEp})`;
+                Object.assign(badge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#89b4fa", color: "#1e1e2e", borderRadius: "3px", padding: "1px 5px" });
+                row.appendChild(badge);
+                if (!dlNewBadge && !dlOldBadge) {
+                  dlNewBadge = document.createElement("span");
+                  dlNewBadge.textContent = `일치 (${pageEp})`;
+                  Object.assign(dlNewBadge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#89b4fa", color: "#1e1e2e", borderRadius: "3px", padding: "1px 5px" });
+                }
+              } else if (fileEp > pageEp) {
                 const badge = document.createElement("span");
                 badge.textContent = `최신 (${fileEp})`;
                 Object.assign(badge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#a6e3a1", color: "#1e1e2e", borderRadius: "3px", padding: "1px 5px" });
@@ -815,7 +825,7 @@
                   dlOldBadge.textContent = `구버전 (${pageEp})`;
                   Object.assign(dlOldBadge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#45475a", color: "#cdd6f4", borderRadius: "3px", padding: "1px 5px" });
                 }
-              } else if (pageEp > fileEp) {
+              } else {
                 const badge = document.createElement("span");
                 badge.textContent = `구버전 (${fileEp})`;
                 Object.assign(badge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#45475a", color: "#cdd6f4", borderRadius: "3px", padding: "1px 5px" });
