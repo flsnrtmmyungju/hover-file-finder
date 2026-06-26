@@ -830,7 +830,7 @@
                 badge.textContent = `구버전 (${fileEp})`;
                 Object.assign(badge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#45475a", color: "#cdd6f4", borderRadius: "3px", padding: "1px 5px" });
                 row.appendChild(badge);
-                if (!dlNewBadge) {
+                if (!dlNewBadge && !dlOldBadge) {
                   dlNewBadge = document.createElement("span");
                   dlNewBadge.textContent = `최신 (${pageEp})`;
                   Object.assign(dlNewBadge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#fab387", color: "#1e1e2e", borderRadius: "3px", padding: "1px 5px" });
