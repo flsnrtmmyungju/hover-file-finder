@@ -780,6 +780,7 @@
           // 결과 렌더
           panel.innerHTML = "";
           let dlNewBadge = null;
+          let dlOldBadge = null;
 
           const makeFileRow = (fileItem, isExact) => {
             const fname = typeof fileItem === "object" ? fileItem.name : fileItem;
@@ -809,6 +810,11 @@
                 badge.textContent = `최신 (${fileEp})`;
                 Object.assign(badge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#a6e3a1", color: "#1e1e2e", borderRadius: "3px", padding: "1px 5px" });
                 row.appendChild(badge);
+                if (!dlOldBadge) {
+                  dlOldBadge = document.createElement("span");
+                  dlOldBadge.textContent = `구버전 (${pageEp})`;
+                  Object.assign(dlOldBadge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#45475a", color: "#cdd6f4", borderRadius: "3px", padding: "1px 5px" });
+                }
               } else if (pageEp > fileEp) {
                 const badge = document.createElement("span");
                 badge.textContent = `구버전 (${fileEp})`;
@@ -892,10 +898,11 @@
             panel.appendChild(none);
           }
 
-          if (dlNewBadge) {
+          const dlBadge = dlNewBadge || dlOldBadge;
+          if (dlBadge) {
             const dlBtn = topRow.querySelector("button");
-            if (dlBtn) topRow.insertBefore(dlNewBadge, dlBtn);
-            else topRow.appendChild(dlNewBadge);
+            if (dlBtn) topRow.insertBefore(dlBadge, dlBtn);
+            else topRow.appendChild(dlBadge);
           }
         })
         .catch((err) => {
