@@ -36,6 +36,7 @@
       maxWidth: "calc(100vw - 20px)",
       height: "calc(100vh - 68px)",
       overflowY: "auto",
+      scrollbarGutter: "stable",
       boxShadow: "0 6px 24px rgba(0,0,0,.7)",
       display: "none",
       pointerEvents: "auto",
@@ -79,10 +80,6 @@
         const res = await fetch(url, { method: "POST" });
         const data = await res.json();
         btn.textContent = onResult(data);
-      // 이름정리/이동 후 팝업 내용이 구식이 되므로 닫기
-      if (url.includes("rename") || url.includes("organize")) {
-        setTimeout(() => { hide(true); lastText = ""; }, 1500);
-      }
       } catch {
         btn.textContent = "오류";
       }
@@ -143,35 +140,10 @@
     });
     wrap.appendChild(dedupBtn);
 
-    // 뷰어보기 버튼
-    const viewerBtn = document.createElement("button");
-    viewerBtn.textContent = "뷰어보기";
-    Object.assign(viewerBtn.style, {
-      flex: "1", padding: "5px 0", background: "#cba6f7",
-      color: "#1e1e2e", border: "none", borderRadius: "5px",
-      fontWeight: "700", fontSize: "11px", cursor: "pointer",
-    });
-    viewerBtn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      viewerBtn.textContent = "열기 중...";
-      viewerBtn.disabled = true;
-      try {
-        const res = await fetch("http://localhost:7823/history");
-        const hist = await res.json();
-        if (hist.length > 0) {
-          openViewerWindow(hist[0].filename);
-        } else {
-          alert("뷰어 기록이 없습니다.");
-        }
-      } catch { alert("서버 오류"); }
-      setTimeout(() => { viewerBtn.textContent = "뷰어보기"; viewerBtn.disabled = false; }, 2000);
-    });
-    wrap.appendChild(viewerBtn);
-
     wrap.appendChild(makeActionBtn(
       "압축풀기", "#a6e3a1",
       "http://localhost:7823/extract-all",
-      (d) => d.error ? "오류" : `✓ ${d.extracted}개 압축해제`
+      (d) => d.error ? "오류" : `✓ ${(d.done || []).length}개 압축해제`
     ));
     wrap.appendChild(makeActionBtn(
       "epub변환", "#f9e2af",
@@ -201,6 +173,31 @@
       setTimeout(() => { archiveBtn.textContent = "전체 중복확인"; archiveBtn.disabled = false; }, 3000);
     });
     wrap.appendChild(archiveBtn);
+
+    // 뷰어보기 버튼 (맨 오른쪽)
+    const viewerBtn = document.createElement("button");
+    viewerBtn.textContent = "뷰어보기";
+    Object.assign(viewerBtn.style, {
+      flex: "1", padding: "5px 0", background: "#cba6f7",
+      color: "#1e1e2e", border: "none", borderRadius: "5px",
+      fontWeight: "700", fontSize: "11px", cursor: "pointer",
+    });
+    viewerBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      viewerBtn.textContent = "열기 중...";
+      viewerBtn.disabled = true;
+      try {
+        const res = await fetch("http://localhost:7823/history");
+        const hist = await res.json();
+        if (hist.length > 0) {
+          openViewerWindow(hist[0].filename);
+        } else {
+          alert("뷰어 기록이 없습니다.");
+        }
+      } catch { alert("서버 오류"); }
+      setTimeout(() => { viewerBtn.textContent = "뷰어보기"; viewerBtn.disabled = false; }, 2000);
+    });
+    wrap.appendChild(viewerBtn);
 
     return wrap;
   }
@@ -530,7 +527,7 @@
   }
 
   function openViewerWindow(filename) {
-    window.postMessage({ type: 'open-viewer', filename }, '*');
+    chrome.runtime.sendMessage({ type: 'open-viewer', filename });
   }
 
   // ── 페이지 전체 소설 목록 표시 (toki.org) ───────────────────────
@@ -546,15 +543,19 @@
 
     // 헤더
     const hdrRow = document.createElement("div");
-    Object.assign(hdrRow.style, { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" });
+    Object.assign(hdrRow.style, { display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" });
     const hdr = document.createElement("div");
-    Object.assign(hdr.style, { color: "#89b4fa", fontWeight: "700", fontSize: "11px" });
+    Object.assign(hdr.style, { color: "#89b4fa", fontWeight: "700", fontSize: "11px", flex: "1" });
     hdr.textContent = `📋 페이지 소설 ${items.length}개`;
+    const stopBtn = document.createElement("button");
+    stopBtn.textContent = "검색 중지";
+    Object.assign(stopBtn.style, { flexShrink: "0", fontSize: "9px", padding: "2px 6px", background: "#f38ba8", color: "#1e1e2e", border: "none", borderRadius: "3px", cursor: "pointer", fontWeight: "700" });
+    stopBtn.addEventListener("click", (e) => { e.stopPropagation(); _fetchController?.abort(); stopBtn.style.display = "none"; });
     const closeBtn = document.createElement("span");
     closeBtn.textContent = "✕";
-    Object.assign(closeBtn.style, { cursor: "pointer", color: "#6c7086", fontSize: "14px" });
+    Object.assign(closeBtn.style, { cursor: "pointer", color: "#6c7086", fontSize: "14px", flexShrink: "0" });
     closeBtn.addEventListener("click", (e) => { e.stopPropagation(); hide(); });
-    hdrRow.appendChild(hdr); hdrRow.appendChild(closeBtn);
+    hdrRow.appendChild(hdr); hdrRow.appendChild(stopBtn); hdrRow.appendChild(closeBtn);
     el.appendChild(hdrRow);
 
     // 탭
@@ -638,10 +639,12 @@
     });
 
     // 각 항목을 즉시 렌더 후 개별 fetch
+    let _pendingFetches = sortedItems.length;
     sortedItems.forEach(({ text: searchText, displayName, size, dlEl }) => {
       const isDup = _titleCount.get(_normTitle({ displayName, text: searchText })) > 1;
       const rawName = displayName || searchText;
       const pageEp = extractEpNum(rawName);
+      const pageSideInfo = extractSideInfo(rawName);
 
       const section = document.createElement("div");
       Object.assign(section.style, { borderTop: "1px solid #313244", padding: "5px 0 3px", display: "none" });
@@ -656,11 +659,35 @@
       Object.assign(arrow.style, { flexShrink: "0", color: "#6c7086", fontSize: "9px" });
 
       const nm = document.createElement("span");
-      Object.assign(nm.style, { flex: "1", fontSize: "11px", whiteSpace: "nowrap", color: "#cdd6f4" });
+      Object.assign(nm.style, { flexShrink: "0", fontSize: "11px", whiteSpace: "nowrap", color: "#cdd6f4" });
       nm.textContent = rawName; nm.title = rawName;
+
+      // dlBadge가 나중에 삽입될 slot (이름 바로 오른쪽)
+      const nmBadgeSlot = document.createElement("span");
+      nmBadgeSlot.style.flexShrink = "0";
+
+      // 이름과 badge 사이 공간 채우는 spacer
+      const nmSpacer = document.createElement("span");
+      nmSpacer.style.flex = "1";
+
+      const nmCopyBtn = document.createElement("button");
+      nmCopyBtn.textContent = "⎘";
+      Object.assign(nmCopyBtn.style, { flexShrink: "0", background: "none", border: "none", cursor: "pointer", fontSize: "11px", padding: "0 2px", color: "#6c7086" });
+      nmCopyBtn.addEventListener("mouseenter", () => nmCopyBtn.style.color = "#cdd6f4");
+      nmCopyBtn.addEventListener("mouseleave", () => nmCopyBtn.style.color = "#6c7086");
+      nmCopyBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(rawName).then(() => {
+          nmCopyBtn.textContent = "✓";
+          setTimeout(() => { nmCopyBtn.textContent = "⎘"; }, 1200);
+        });
+      });
 
       topRow.appendChild(arrow);
       topRow.appendChild(nm);
+      topRow.appendChild(nmCopyBtn);
+      topRow.appendChild(nmBadgeSlot);
+      topRow.appendChild(nmSpacer);
 
       if (isDup) {
         const dupBadge = document.createElement("span");
@@ -731,10 +758,6 @@
       // 패널 (결과)
       const panel = document.createElement("div");
       panel.style.display = "block";
-      const loadingMsg = document.createElement("div");
-      Object.assign(loadingMsg.style, { fontSize: "10px", color: "#6c7086", padding: "2px 0 2px 18px" });
-      loadingMsg.textContent = "검색 중...";
-      panel.appendChild(loadingMsg);
 
       // 접기/펼치기
       let expanded = true;
@@ -750,195 +773,371 @@
       listDiv.appendChild(section);
 
       // 개별 fetch → 결과 렌더
-      fetch(`${SERVER}?text=${encodeURIComponent(searchText)}`, { signal })
-        .then(r => r.json())
-        .then(data => {
-          if (signal.aborted) return;
-          const exact = data.exact || [], partial = data.partial || [];
-          let cat;
-          if (exact.length > 0) {
-            // 일치 조건: 회차 둘 다 있고 같음 OR 둘 다 없음
-            // 확인필요: 한쪽만 회차 있음, 또는 둘 다 있지만 다름
-            const anyEpMatch = exact.some(it => {
-              const fEp = extractEpNum(typeof it === "object" ? it.name : it);
-              return (pageEp !== null && fEp !== null && fEp === pageEp) ||
-                     (pageEp === null && fEp === null);
-            });
-            cat = anyEpMatch ? "match" : "need";
-          } else {
-            cat = partial.length > 0 ? "need" : "none";
-          }
+      const epText = (ep, si) => {
+        if (!si || !si.length) return String(ep);
+        const total = si.reduce((s,x) => s+x.count, 0);
+        return ep + ' + ' + si.map(x => x.label+' '+x.count).join(' + ') + ' = ' + (ep+total);
+      };
+      let dlNewBadge = null;
+      let dlOldBadge = null;
+      let doFetch;
 
-          // 탭 카운터 업데이트
-          counts[cat].total++; counts[cat].shown++;
-          updateTabBtn(cat);
-
-          // 섹션 카테고리 지정 및 탭 필터 적용
-          section.dataset.cat = cat;
-          section.style.display = cat === activeTab ? "" : "none";
-
-          // 결과 렌더
-          panel.innerHTML = "";
-          let dlNewBadge = null;
-          let dlOldBadge = null;
-
-          const makeFileRow = (fileItem, isExact) => {
-            const fname = typeof fileItem === "object" ? fileItem.name : fileItem;
-            const fsize = typeof fileItem === "object" ? fileItem.size : null;
-            const fileEp = extractEpNum(fname);
-            const row = document.createElement("div");
-            Object.assign(row.style, {
-              display: "flex", alignItems: "center", gap: "5px",
-              padding: "2px 4px 2px 18px", fontSize: "10px", marginBottom: "1px",
-              background: isExact ? "rgba(166,227,161,0.12)" : "rgba(249,226,175,0.08)",
-              borderLeft: `2px solid ${isExact ? "#a6e3a1" : "#f9e2af"}`,
-              borderRadius: "0 3px 3px 0",
-            });
-            const lbl = document.createElement("span");
-            Object.assign(lbl.style, { flex: "1", whiteSpace: "nowrap", color: isExact ? "#a6e3a1" : "#f9e2af" });
-            lbl.textContent = fname;
-            row.appendChild(lbl);
-            if (fsize) {
-              const fs = document.createElement("span");
-              Object.assign(fs.style, { flexShrink: "0", color: "#6c7086" });
-              fs.textContent = fsize + "MB";
-              row.appendChild(fs);
+      const makeFileRow = (fileItem, isExact) => {
+        const fname = typeof fileItem === "object" ? fileItem.name : fileItem;
+        const fsize = typeof fileItem === "object" ? fileItem.size : null;
+        const fileEp = extractEpNum(fname);
+        const fileSideInfo = extractSideInfo(fname);
+        const row = document.createElement("div");
+        Object.assign(row.style, {
+          display: "flex", alignItems: "center", gap: "5px",
+          padding: "2px 4px 2px 18px", fontSize: "10px", marginBottom: "1px",
+          background: isExact ? "rgba(166,227,161,0.12)" : "rgba(249,226,175,0.08)",
+          borderLeft: `2px solid ${isExact ? "#a6e3a1" : "#f9e2af"}`,
+          borderRadius: "0 3px 3px 0",
+        });
+        const lbl = document.createElement("span");
+        Object.assign(lbl.style, { flexShrink: "0", whiteSpace: "nowrap", color: isExact ? "#a6e3a1" : "#f9e2af" });
+        lbl.textContent = fname;
+        row.appendChild(lbl);
+        const copyBtn = document.createElement("button");
+        copyBtn.textContent = "⎘";
+        Object.assign(copyBtn.style, { flexShrink: "0", background: "none", border: "none", cursor: "pointer", fontSize: "11px", padding: "0 2px", color: "#6c7086" });
+        copyBtn.addEventListener("mouseenter", () => copyBtn.style.color = "#cdd6f4");
+        copyBtn.addEventListener("mouseleave", () => copyBtn.style.color = "#6c7086");
+        copyBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          navigator.clipboard.writeText(fname).then(() => {
+            copyBtn.textContent = "✓";
+            setTimeout(() => { copyBtn.textContent = "⎘"; }, 1200);
+          });
+        });
+        row.appendChild(copyBtn);
+        // 뱃지: 파일명 바로 오른쪽
+        const mkBadge = (text, bg, fg="#1e1e2e") => {
+          const b = document.createElement("span");
+          b.textContent = text;
+          Object.assign(b.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: bg, color: fg, borderRadius: "3px", padding: "1px 5px" });
+          return b;
+        };
+        if (fileEp !== null) {
+          if (!isExact) {
+            // 유사: 회차 수치만 중립 표시
+            row.appendChild(mkBadge(epText(fileEp, fileSideInfo), "#585b70", "#cdd6f4"));
+          } else if (pageEp !== null) {
+            if (fileEp === pageEp) {
+              row.appendChild(mkBadge(epText(fileEp, fileSideInfo), "#e6ff4e"));
+              if (!dlNewBadge && !dlOldBadge)
+                dlNewBadge = mkBadge(epText(pageEp, pageSideInfo), "#e6ff4e");
+            } else if (fileEp > pageEp) {
+              row.appendChild(mkBadge(`최신 (${epText(fileEp, fileSideInfo)})`, "#a6e3a1"));
+              if (!dlOldBadge)
+                dlOldBadge = mkBadge(`구버전 (${epText(pageEp, pageSideInfo)})`, "#45475a", "#cdd6f4");
+            } else {
+              row.appendChild(mkBadge(`구버전 (${epText(fileEp, fileSideInfo)})`, "#45475a", "#cdd6f4"));
+              if (!dlNewBadge && !dlOldBadge)
+                dlNewBadge = mkBadge(`최신 (${epText(pageEp, pageSideInfo)})`, "#fab387");
             }
-            if (pageEp !== null && fileEp !== null) {
-              if (fileEp === pageEp) {
-                const badge = document.createElement("span");
-                badge.textContent = `일치 (${fileEp})`;
-                Object.assign(badge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#e6ff4e", color: "#1e1e2e", borderRadius: "3px", padding: "1px 5px" });
-                row.appendChild(badge);
-                if (!dlNewBadge && !dlOldBadge) {
-                  dlNewBadge = document.createElement("span");
-                  dlNewBadge.textContent = `일치 (${pageEp})`;
-                  Object.assign(dlNewBadge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#e6ff4e", color: "#1e1e2e", borderRadius: "3px", padding: "1px 5px" });
-                }
-              } else if (fileEp > pageEp) {
-                const badge = document.createElement("span");
-                badge.textContent = `최신 (${fileEp})`;
-                Object.assign(badge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#a6e3a1", color: "#1e1e2e", borderRadius: "3px", padding: "1px 5px" });
-                row.appendChild(badge);
-                if (!dlOldBadge) {
-                  dlOldBadge = document.createElement("span");
-                  dlOldBadge.textContent = `구버전 (${pageEp})`;
-                  Object.assign(dlOldBadge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#45475a", color: "#cdd6f4", borderRadius: "3px", padding: "1px 5px" });
-                }
+          } else {
+            // pageEp 추출 불가 → fileEp만 중립 표시
+            row.appendChild(mkBadge(epText(fileEp, fileSideInfo), "#585b70", "#cdd6f4"));
+          }
+        } else if (isExact && pageEp !== null) {
+          // 파일에 회차 없지만 정확 일치 → 파일 행엔 뱃지 없음, 상단 nmBadgeSlot에 회차 뱃지
+          if (!dlNewBadge && !dlOldBadge)
+            dlNewBadge = mkBadge(epText(pageEp, pageSideInfo), "#e6ff4e");
+        }
+        // spacer: 뱃지 이후 남은 공간 채움 (controls를 오른쪽 끝으로)
+        const spacer = document.createElement("span");
+        spacer.style.flex = "1";
+        row.appendChild(spacer);
+        if (fsize) {
+          const fs = document.createElement("span");
+          Object.assign(fs.style, { flexShrink: "0", color: "#6c7086" });
+          fs.textContent = fsize + "MB";
+          row.appendChild(fs);
+        }
+        // 수정 버튼
+        const editBtn = document.createElement("button");
+        editBtn.textContent = "✏";
+        Object.assign(editBtn.style, { flexShrink: "0", background: "none", border: "none", cursor: "pointer", fontSize: "11px", padding: "0 2px", color: "#6c7086" });
+        editBtn.addEventListener("mouseenter", () => editBtn.style.color = "#89b4fa");
+        editBtn.addEventListener("mouseleave", () => editBtn.style.color = "#6c7086");
+        editBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (row.dataset.editing === "1") return;
+          row.dataset.editing = "1";
+          const ext = fname.match(/(\.[^.]+)$/)?.[1] ?? "";
+          const stem = fname.slice(0, fname.length - ext.length);
+          const input = document.createElement("input");
+          Object.assign(input.style, {
+            flex: "1", fontSize: "10px", background: "#313244", color: "#cdd6f4",
+            border: "1px solid #89b4fa", borderRadius: "3px", padding: "1px 4px",
+            outline: "none", minWidth: "0",
+          });
+          input.value = stem;
+          lbl.replaceWith(input);
+          input.focus();
+          input.select();
+          let committing = false;
+          const cancel = () => {
+            if (committing) return;
+            delete row.dataset.editing;
+            input.replaceWith(lbl);
+          };
+          const commit = async () => {
+            if (committing) return;
+            const newStem = input.value.trim();
+            if (!newStem || newStem + ext === fname) { cancel(); return; }
+            committing = true;
+            const newName = newStem + ext;
+            try {
+              const r = await fetch(`http://localhost:7823/rename-file?old=${encodeURIComponent(fname)}&new=${encodeURIComponent(newName)}`, { method: "POST" });
+              const d = await r.json();
+              if (d.ok) {
+                delete row.dataset.editing;
+                input.replaceWith(lbl);
+                nmBadgeSlot.innerHTML = "";
+                doFetch(true);
+              } else { committing = false; alert("이름 변경 실패: " + (d.error || "오류")); cancel(); }
+            } catch { committing = false; alert("서버 오류"); cancel(); }
+          };
+          input.addEventListener("keydown", (e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") commit();
+            else if (e.key === "Escape") cancel();
+          });
+          input.addEventListener("blur", cancel);
+        });
+        row.appendChild(editBtn);
+
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "🗑";
+        Object.assign(delBtn.style, { flexShrink: "0", background: "none", border: "none", cursor: "pointer", fontSize: "12px", padding: "0 2px", color: "#6c7086" });
+        delBtn.addEventListener("mouseenter", () => delBtn.style.color = "#f38ba8");
+        delBtn.addEventListener("mouseleave", () => delBtn.style.color = "#6c7086");
+        delBtn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          if (!confirm(`삭제?\n${fname}`)) return;
+          try {
+            const r = await fetch(`http://localhost:7823/delete?filename=${encodeURIComponent(fname)}`, { method: "POST" });
+            const d = await r.json();
+            if (d.ok) { row.style.opacity = "0.3"; lbl.textContent = "✓ 삭제: " + fname; delBtn.remove(); }
+            else alert("삭제 실패: " + (d.error || "오류"));
+          } catch { alert("서버 오류"); }
+        });
+        row.appendChild(delBtn);
+        return row;
+      };
+
+      doFetch = (isRetry = false) => {
+        dlNewBadge = null;
+        dlOldBadge = null;
+        panel.innerHTML = "";
+        const loadingMsg = document.createElement("div");
+        Object.assign(loadingMsg.style, { fontSize: "10px", color: "#6c7086", padding: "2px 0 2px 18px" });
+        loadingMsg.textContent = isRetry ? "재검색 중..." : "검색 중...";
+        panel.appendChild(loadingMsg);
+
+        fetch(`${SERVER}?text=${encodeURIComponent(searchText)}`, { signal })
+          .then(r => r.json())
+          .then(data => {
+            if (signal.aborted) return;
+            const exact = data.exact || [], partial = data.partial || [];
+
+            if (!isRetry) {
+              let cat;
+              if (exact.length > 0) {
+                const anyEpMatch = exact.some(it => {
+                  const fEp = extractEpNum(typeof it === "object" ? it.name : it);
+                  return (pageEp !== null && fEp !== null && fEp === pageEp) ||
+                         (pageEp === null && fEp === null);
+                });
+                cat = anyEpMatch ? "match" : "need";
               } else {
-                const badge = document.createElement("span");
-                badge.textContent = `구버전 (${fileEp})`;
-                Object.assign(badge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#45475a", color: "#cdd6f4", borderRadius: "3px", padding: "1px 5px" });
-                row.appendChild(badge);
-                if (!dlNewBadge && !dlOldBadge) {
-                  dlNewBadge = document.createElement("span");
-                  dlNewBadge.textContent = `최신 (${pageEp})`;
-                  Object.assign(dlNewBadge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#fab387", color: "#1e1e2e", borderRadius: "3px", padding: "1px 5px" });
-                }
+                cat = partial.length > 0 ? "need" : "none";
+              }
+              counts[cat].total++; counts[cat].shown++;
+              updateTabBtn(cat);
+              section.dataset.cat = cat;
+              section.style.display = cat === activeTab ? "" : "none";
+            }
+
+            panel.innerHTML = "";
+
+            if (exact.length) {
+              const hd = document.createElement("div");
+              Object.assign(hd.style, { fontSize: "10px", color: "#a6e3a1", fontWeight: "700", padding: "3px 0 1px 18px" });
+              hd.textContent = `✓ 정확 ${exact.length}개`;
+              panel.appendChild(hd);
+              exact.forEach(it => panel.appendChild(makeFileRow(it, true)));
+            }
+            if (partial.length) {
+              const partialTotal = data.partial_total ?? partial.length;
+              const PAGE = 10;
+              let shownP = 0;
+
+              const hd = document.createElement("div");
+              Object.assign(hd.style, { fontSize: "10px", color: "#f9e2af", fontWeight: "700", padding: "3px 0 1px 18px" });
+              const updateHd = () => {
+                hd.textContent = `~ 유사 ${shownP}개` + (partialTotal > shownP ? ` / 전체 ${partialTotal}개` : "");
+              };
+
+              const moreBtn = document.createElement("button");
+              Object.assign(moreBtn.style, {
+                display: "block", margin: "4px 0 2px 18px", padding: "2px 10px",
+                background: "#313244", color: "#f9e2af", border: "1px solid #45475a",
+                borderRadius: "4px", fontSize: "10px", cursor: "pointer",
+              });
+              const updateMoreBtn = () => {
+                const left = partial.length - shownP;
+                moreBtn.textContent = `${Math.min(PAGE, left)}개 더 (${left}개 남음)`;
+              };
+              moreBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const batch = partial.slice(shownP, shownP + PAGE);
+                batch.forEach(it => moreBtn.before(makeFileRow(it, false)));
+                shownP += batch.length;
+                updateHd();
+                if (shownP >= partial.length) moreBtn.remove();
+                else updateMoreBtn();
+              });
+
+              if (exact.length) {
+                const partialWrap = document.createElement("div");
+                partialWrap.style.display = "none";
+                partialWrap.appendChild(hd);
+                const first = partial.slice(0, PAGE);
+                first.forEach(it => partialWrap.appendChild(makeFileRow(it, false)));
+                shownP = first.length;
+                updateHd();
+                if (partial.length > PAGE) { updateMoreBtn(); partialWrap.appendChild(moreBtn); }
+
+                const showBtn = document.createElement("button");
+                Object.assign(showBtn.style, {
+                  display: "block", margin: "4px 0 2px 18px", padding: "2px 10px",
+                  background: "#313244", color: "#f9e2af", border: "1px solid #45475a",
+                  borderRadius: "4px", fontSize: "10px", cursor: "pointer",
+                });
+                showBtn.textContent = `유사 ${Math.min(PAGE, partial.length)}개 검색`;
+                showBtn.addEventListener("click", (e) => {
+                  e.stopPropagation();
+                  showBtn.remove();
+                  partialWrap.style.display = "";
+                });
+                panel.appendChild(showBtn);
+                panel.appendChild(partialWrap);
+              } else {
+                panel.appendChild(hd);
+                const first = partial.slice(0, PAGE);
+                first.forEach(it => panel.appendChild(makeFileRow(it, false)));
+                shownP = first.length;
+                updateHd();
+                if (partial.length > PAGE) { updateMoreBtn(); panel.appendChild(moreBtn); }
               }
             }
-            const delBtn = document.createElement("button");
-            delBtn.textContent = "🗑";
-            Object.assign(delBtn.style, { flexShrink: "0", background: "none", border: "none", cursor: "pointer", fontSize: "12px", padding: "0 2px", color: "#6c7086" });
-            delBtn.addEventListener("mouseenter", () => delBtn.style.color = "#f38ba8");
-            delBtn.addEventListener("mouseleave", () => delBtn.style.color = "#6c7086");
-            delBtn.addEventListener("click", async (e) => {
-              e.stopPropagation();
-              if (!confirm(`삭제?\n${fname}`)) return;
-              try {
-                const r = await fetch(`http://localhost:7823/delete?filename=${encodeURIComponent(fname)}`, { method: "POST" });
-                const d = await r.json();
-                if (d.ok) { row.style.opacity = "0.3"; lbl.textContent = "✓ 삭제: " + fname; delBtn.remove(); }
-                else alert("삭제 실패: " + (d.error || "오류"));
-              } catch { alert("서버 오류"); }
-            });
-            row.appendChild(delBtn);
-            return row;
-          };
+            if (!exact.length && !partial.length) {
+              const none = document.createElement("div");
+              Object.assign(none.style, { fontSize: "10px", color: "#6c7086", padding: "2px 0 2px 18px" });
+              none.textContent = "미보유";
+              panel.appendChild(none);
+            }
 
-          if (exact.length) {
-            const hd = document.createElement("div");
-            Object.assign(hd.style, { fontSize: "10px", color: "#a6e3a1", fontWeight: "700", padding: "3px 0 1px 18px" });
-            hd.textContent = `✓ 정확 ${exact.length}개`;
-            panel.appendChild(hd);
-            exact.forEach(it => panel.appendChild(makeFileRow(it, true)));
-          }
-          if (partial.length) {
-            const partialTotal = data.partial_total ?? partial.length;
-            const PAGE = 10;
-            let shownP = 0;
-
-            const hd = document.createElement("div");
-            Object.assign(hd.style, { fontSize: "10px", color: "#f9e2af", fontWeight: "700", padding: "3px 0 1px 18px" });
-            const updateHd = () => {
-              hd.textContent = `~ 유사 ${shownP}개` + (partialTotal > shownP ? ` / 전체 ${partialTotal}개` : "");
-            };
-            panel.appendChild(hd);
-
-            const moreBtn = document.createElement("button");
-            Object.assign(moreBtn.style, {
-              display: "block", margin: "4px 0 2px 18px", padding: "2px 10px",
-              background: "#313244", color: "#f9e2af", border: "1px solid #45475a",
-              borderRadius: "4px", fontSize: "10px", cursor: "pointer",
-            });
-            const updateMoreBtn = () => {
-              const left = partial.length - shownP;
-              moreBtn.textContent = `${Math.min(PAGE, left)}개 더 (${left}개 남음)`;
-            };
-            moreBtn.addEventListener("click", (e) => {
-              e.stopPropagation();
-              const batch = partial.slice(shownP, shownP + PAGE);
-              batch.forEach(it => moreBtn.before(makeFileRow(it, false)));
-              shownP += batch.length;
-              updateHd();
-              if (shownP >= partial.length) moreBtn.remove();
-              else updateMoreBtn();
-            });
-
-            const first = partial.slice(0, PAGE);
-            first.forEach(it => panel.appendChild(makeFileRow(it, false)));
-            shownP = first.length;
-            updateHd();
-            if (partial.length > PAGE) { updateMoreBtn(); panel.appendChild(moreBtn); }
-          }
-          if (!exact.length && !partial.length) {
-            const none = document.createElement("div");
-            Object.assign(none.style, { fontSize: "10px", color: "#6c7086", padding: "2px 0 2px 18px" });
-            none.textContent = "미보유";
-            panel.appendChild(none);
-          }
-
-          const dlBadge = dlNewBadge || dlOldBadge;
-          if (dlBadge) {
-            const dlBtn = topRow.querySelector("button");
-            if (dlBtn) topRow.insertBefore(dlBadge, dlBtn);
-            else topRow.appendChild(dlBadge);
-          }
-        })
-        .catch((err) => {
-          if (err.name === "AbortError") return;
-          counts["none"].total++; counts["none"].shown++;
-          section.dataset.cat = "none";
-          section.style.display = "none" === activeTab ? "" : "none";
-          updateTabBtn("none");
-          panel.innerHTML = '<div style="font-size:10px;color:#f38ba8;padding:2px 0 2px 18px">서버 오류</div>';
-        });
+            const dlBadge = dlNewBadge || dlOldBadge;
+            if (dlBadge) {
+              nmBadgeSlot.appendChild(dlBadge);
+            } else if (!exact.length && partial.length && pageEp !== null) {
+              const nb = document.createElement("span");
+              nb.textContent = epText(pageEp, pageSideInfo);
+              Object.assign(nb.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#585b70", color: "#cdd6f4", borderRadius: "3px", padding: "1px 5px" });
+              nmBadgeSlot.appendChild(nb);
+            }
+          })
+          .catch((err) => {
+            if (err.name === "AbortError") return;
+            if (!isRetry) {
+              counts["none"].total++; counts["none"].shown++;
+              section.dataset.cat = "none";
+              section.style.display = "none" === activeTab ? "" : "none";
+              updateTabBtn("none");
+            }
+            panel.innerHTML = '<div style="font-size:10px;color:#f38ba8;padding:2px 0 2px 18px">서버 오류</div>';
+          })
+          .finally(() => {
+            if (!isRetry && --_pendingFetches <= 0) stopBtn.style.display = "none";
+          });
+      };
+      doFetch();
     });
   }
 
   // ── 댓글 + 추천 바 ──────────────────────────────────────────────
+  // 외전 범위 패턴: "1-93 외전", "1~93외전" 등
+  // 부록 키워드 패턴 (우선순위순)
+  // P1: 키워드+범위 "외전 1-9"
+  const SIDE_KW_RANGE_RE = /(외전|후기|에필로그|에필(?!로그)|필담|후(?!기))\s+(\d+)[-~](\d+)/g;
+  // P2: 범위+키워드 "1-93 외전" — 키워드 뒤 숫자 오면 별도 섹션이므로 제외
+  const SIDE_RANGE_KW_RE = /\b(\d+)[-~](\d+)\s*(외전|후기|에필(?!로그)|필담|후(?![가-힣])|외(?![가-힣]))(?!\s*\d)/g;
+  // P3: 키워드+단일숫자 "외전 10" / "외 10" / "후 5" — 범위 앞 숫자 제외
+  const SIDE_KW_NUM_RE   = /(외전|후기|에필로그|에필(?!로그)|필담|후(?![가-힣])|외(?![가-힣]))\s*(\d+)(?![-~\d])/g;
+  // P4: 외/후 단독 + 범위 "외 1-2" / "후 1-5" — 앞에 메인 범위 있어야 side로 인정
+  const OE_RANGE_RE = /외(?![가-힣])\s+(\d+)[-~](\d+)/g;
+  const HU_RANGE_RE = /후(?![가-힣])\s+(\d+)[-~](\d+)/g;
+
+  function _normSideLabel(kw) {
+    if (kw.startsWith('에필로')) return '에필';
+    if (kw === '후') return '후기';
+    if (kw === '외') return '외전';
+    return kw;
+  }
+
+  function _hasRangeBefore(name, pos) { return /\d+[-~]\d+/.test(name.slice(0, pos)); }
+
+  function _getSideSpans(name) {
+    const spans = [];
+    for (const m of name.matchAll(SIDE_KW_RANGE_RE)) spans.push([m.index, m.index+m[0].length]);
+    for (const m of name.matchAll(SIDE_RANGE_KW_RE)) spans.push([m.index, m.index+m[0].length]);
+    for (const m of name.matchAll(SIDE_KW_NUM_RE))   spans.push([m.index, m.index+m[0].length]);
+    for (const m of name.matchAll(OE_RANGE_RE)) if (_hasRangeBefore(name, m.index)) spans.push([m.index, m.index+m[0].length]);
+    for (const m of name.matchAll(HU_RANGE_RE)) if (_hasRangeBefore(name, m.index)) spans.push([m.index, m.index+m[0].length]);
+    return spans;
+  }
+
+  function _inSpans(spans, start, end) {
+    return spans.some(([s,e]) => start < e && end > s);
+  }
+
+  function extractSideInfo(name) {
+    const results = [], covered = [];
+    const add = (start, end, label, count) => {
+      if (!covered.some(([s,e]) => start < e && end > s)) {
+        results.push({ label, count });
+        covered.push([start, end]);
+      }
+    };
+    for (const m of name.matchAll(SIDE_KW_RANGE_RE))
+      add(m.index, m.index+m[0].length, _normSideLabel(m[1]), parseInt(m[3],10));
+    for (const m of name.matchAll(SIDE_RANGE_KW_RE))
+      add(m.index, m.index+m[0].length, _normSideLabel(m[3]), parseInt(m[2],10));
+    for (const m of name.matchAll(SIDE_KW_NUM_RE))
+      add(m.index, m.index+m[0].length, _normSideLabel(m[1]), parseInt(m[2],10));
+    for (const m of name.matchAll(OE_RANGE_RE))
+      if (_hasRangeBefore(name, m.index)) add(m.index, m.index+m[0].length, '외전', parseInt(m[2],10));
+    for (const m of name.matchAll(HU_RANGE_RE))
+      if (_hasRangeBefore(name, m.index)) add(m.index, m.index+m[0].length, '후기', parseInt(m[2],10));
+    return results;
+  }
+
   function extractEpNum(name) {
-    // "1-594", "1~594" → 594 (끝 화수)
-    const range = name.match(/\b(\d+)[-~](\d+)\b/);
-    if (range) return parseInt(range[2], 10);
-    // "225화" → 225
-    const ep = name.match(/(\d+)\s*화\b/);
-    if (ep) return parseInt(ep[1], 10);
-    // 배수/단위 뒤 숫자 제외 (9999999배, 1000조, 100억 등)
-    const excluded = new Set([...name.matchAll(/\b(\d+)\s*[배조억만천원달러]/g)].map(m => m[1]));
-    const nums = [...name.matchAll(/\b(\d{2,})\b/g)]
-      .filter(m => !excluded.has(m[1]))
-      .map(m => parseInt(m[1], 10));
+    const spans = _getSideSpans(name);
+    const ok = (start, end) => !_inSpans(spans, start, end);
+    for (const m of name.matchAll(/(\d+)\s*화\b/g))
+      if (ok(m.index, m.index+m[0].length)) return parseInt(m[1],10);
+    for (const m of name.matchAll(/\b(\d+)[-~](\d+)\b/g))
+      if (ok(m.index, m.index+m[0].length)) return parseInt(m[2],10);
+    const excluded = new Set([...name.matchAll(/\b(\d+)\s*[배조억만천원달러]/g)].map(m=>m[1]));
+    const nums = [];
+    for (const m of name.matchAll(/(?<!\d)(\d{2,})(?!\d)/g))
+      if (!excluded.has(m[1]) && ok(m.index, m.index+m[0].length)) nums.push(parseInt(m[1],10));
     return nums.length ? Math.max(...nums) : null;
   }
 

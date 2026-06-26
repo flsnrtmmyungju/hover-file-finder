@@ -1,6 +1,15 @@
 const id = parseInt(new URLSearchParams(location.search).get('id'));
 const input = document.getElementById('nameInput');
 const convertBtn = document.getElementById('convertBtn');
+const copyBtn = document.getElementById('copyBtn');
+copyBtn.addEventListener('click', () => {
+  const v = input.value.trim();
+  if (!v) return;
+  navigator.clipboard.writeText(v).then(() => {
+    copyBtn.textContent = '✓';
+    setTimeout(() => { copyBtn.textContent = '⎘'; }, 1200);
+  });
+});
 
 function applyData(data) {
   if (!data) return;
@@ -12,9 +21,11 @@ function applyData(data) {
   input.focus();
   const dot = name.lastIndexOf('.');
   input.setSelectionRange(0, dot > 0 ? dot : name.length);
-  // epub이면 변환 버튼 표시
+  // epub이면 변환 버튼 표시, okBtn 레이블 변경
   if (orig.toLowerCase().endsWith('.epub')) {
     convertBtn.style.display = 'block';
+  } else {
+    document.getElementById('okBtn').textContent = '저장';
   }
 }
 

@@ -66,33 +66,7 @@ def resolve_downloads_dir(raw_path):
 
 
 import time as _time
-import json as _json
-import hashlib as _hashlib
 
-from compound_words import COMPOUND_WORDS as _CW_FOR_HASH
-_COMPOUND_HASH = _hashlib.md5(str(_CW_FOR_HASH).encode()).hexdigest()[:8]
-
-_spacing_cache = {}
-_cache_path = _BASE_DIR / "spacing_cache.json"
-if _cache_path.exists():
-    try:
-        with open(_cache_path, encoding="utf-8") as _f:
-            _loaded = _json.load(_f)
-        if _loaded.get("__compound_hash__") == _COMPOUND_HASH:
-            _spacing_cache = {k: v for k, v in _loaded.items() if k != "__compound_hash__"}
-        else:
-            print(f"[캐시] 복합어 목록 변경 감지 → 캐시 초기화", flush=True)
-    except Exception:
-        pass
-
-def _save_cache():
-    try:
-        data = dict(_spacing_cache)
-        data["__compound_hash__"] = _COMPOUND_HASH
-        with open(_cache_path, "w", encoding="utf-8") as _f:
-            _json.dump(data, _f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
 
 # ── 파일 목록 캐시 ───────────────────────────────────────────────
 _file_cache = {"ts": 0.0, "dir": "", "files": [], "paths": {}, "clean_stems": {}}
@@ -128,7 +102,6 @@ def _warm_file_cache(downloads_dir):
             except Exception:
                 clean_stems[f] = Path(f).stem
         _file_cache["clean_stems"] = clean_stems
-        _save_cache()
     threading.Thread(target=_warm, daemon=True).start()
 
 # ── 복합어 / 고유명사 사전 ────────────────────────────────────────
@@ -439,6 +412,8 @@ HANJA_AFTER     = "後"        # 後 (후기/에필)
 def clean_name(stem, skip_spacing=False):
     # 특수 공백 문자 → 일반 공백
     s = stem.replace('\xa0', ' ').replace('​', '').replace('　', ' ')
+    # @작가명 제거 — @ 자체가 특수문자 제거 전에 먼저 처리해야 붙어버리지 않음
+    s = re.sub(r'@\S+', ' ', s)
     # 특수문자 제거 (■ & → 제외)
     s = re.sub(r'[^\w가-힣\s\-_()\[\]★♥~+/∕■&→﻿]', '', s)
     s = s.replace('﻿', '')  # BOM 제거
@@ -641,6 +616,8 @@ def search():
     }
     if not query_words:
         return jsonify({"no_search": True})
+    # 1글자 포함 쿼리 joined — word check가 1개일 때 추가 검증용
+    q_joined_strict = re.sub(r'[^가-힣a-z]', '', join_single_syllables(query_clean.lower()))
 
     exact = []
     partial = []
@@ -669,15 +646,33 @@ def search():
             if len(w) >= 2 and w not in EXT_STOPWORDS
         } if cstem else set()
 
-        is_exact = bool(query_words) and query_words <= (raw_words | clean_words)
-        if not is_exact:
-            # 한글 공백 제거 비교: 모든 쿼리 단어가 파일 joined 제목에 포함되면 exact
-            raw_joined = re.sub(r'[^가-힣a-z]', '', join_single_syllables(Path(f).stem.lower()))
-            clean_joined = re.sub(r'[^가-힣a-z]', '', join_single_syllables(cstem.lower())) if cstem else ""
+        combined_words = raw_words | clean_words
+        # 쿼리 단어가 파일 단어에 완전히 포함되거나 부분문자열로 커버되는지 확인
+        def _words_covered(qws, fws):
+            for qw in qws:
+                if not any(qw == fw or qw in fw for fw in fws):
+                    return False
+            return True
+        # exact: 쿼리 단어 모두 커버 + 쿼리가 파일 단어의 40% 이상 (단어수 기준)
+        is_exact = (bool(query_words) and
+                    _words_covered(query_words, combined_words) and
+                    len(query_words) >= len(combined_words) * 0.4)
+        raw_joined = re.sub(r'[^가-힣a-z]', '', join_single_syllables(Path(f).stem.lower()))
+        clean_joined = re.sub(r'[^가-힣a-z]', '', join_single_syllables(cstem.lower())) if cstem else ""
+        # word check가 단일 단어로만 통과했으면 1글자 포함 joined로 추가 검증
+        # (예: "펫 테이머" → query_words={'테이머'}, 펫 정보 소실 → 다른 테이머 파일 false positive 방지)
+        _blocked = False
+        if is_exact and len(query_words) == 1 and len(q_joined_strict) >= 4:
+            if q_joined_strict not in raw_joined and q_joined_strict not in clean_joined:
+                is_exact = False
+                _blocked = True
+        if not is_exact and not _blocked:
+            # 한글 공백 제거 비교: 쿼리 문자 길이가 파일 joined의 55% 이상
             qkor = [qw for qw in query_words if re.match(r'^[가-힣]+$', qw) and len(qw) >= 2]
             if qkor:
-                is_exact = (all(qw in raw_joined for qw in qkor) or
-                            all(qw in clean_joined for qw in qkor))
+                q_len = sum(len(qw) for qw in qkor)
+                is_exact = ((all(qw in raw_joined for qw in qkor) and raw_joined and q_len >= len(raw_joined) * 0.55) or
+                            (all(qw in clean_joined for qw in qkor) and clean_joined and q_len >= len(clean_joined) * 0.55))
         if is_exact:
             exact.append((score, f))
         else:
@@ -800,6 +795,7 @@ def rename_file():
 
     try:
         os.rename(target, dst)
+        _invalidate_file_cache()
         return jsonify({"ok": True, "new_name": new_name})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -837,7 +833,6 @@ def _do_rename(target_dir, label, recursive=True):
         if processed % 50 == 0:
             print(f"[이름정리/{label}] 진행 중... ({processed}/{total}) 변경 {renamed}개", flush=True)
     _invalidate_file_cache()
-    _save_cache()
     print(f"[이름정리/{label}] 완료 - 변경 {renamed}개 / 스킵 {skipped}개", flush=True)
     result = {"renamed": renamed, "skipped": skipped, "errors": errors}
     _warm_file_cache(target_dir)
@@ -1334,9 +1329,12 @@ def extract_all():
             s = s + ' 완'
         return s
 
+    _STRIP_BRACKET = re.compile(r'[\[(（【][^\]）】)]*[\]）】)]')
+
     def num_key(pair):
         nm = pair[1].lower()
-        nums = [int(n) for n in re.findall(r'\d+', nm)]
+        nm_clean = _STRIP_BRACKET.sub('', nm)
+        nums = [int(n) for n in re.findall(r'\d+', nm_clean)]
         n = nums[0] if nums else 0
         if '후기' in nm: return (4, n)
         if any(k in nm for k in ('에필로그', '에필')): return (3, n)
@@ -1345,7 +1343,8 @@ def extract_all():
         return (1, n)
 
     def first_num(nm):
-        m = re.search(r'\d+', nm)
+        nm_clean = _STRIP_BRACKET.sub('', nm)
+        m = re.search(r'\d+', nm_clean)
         return int(m.group()) if m else None
 
     def range_suffix(sorted_files):
@@ -1481,26 +1480,21 @@ def epub_convert():
         return jsonify({"error": f"파일 없음: {filename}"}), 404
 
     stem = re.sub(r'\.epub$', '', filename, flags=re.IGNORECASE)
-    folder = os.path.join(os.path.dirname(epub_path), stem)
+    txt_name = stem + ".txt"
+    txt_path = os.path.join(os.path.dirname(epub_path), txt_name)
 
     try:
-        os.makedirs(folder, exist_ok=True)
-        new_epub = os.path.join(folder, filename)
-        shutil.move(epub_path, new_epub)
-
-        txt_name = stem + ".txt"
-        txt_path = os.path.join(folder, txt_name)
-
         result = subprocess.run(
-            [ebook_convert, new_epub, txt_path],
+            [ebook_convert, epub_path, txt_path],
             capture_output=True, text=True, timeout=120
         )
         if result.returncode != 0:
             return jsonify({"error": "변환 실패", "detail": result.stderr[-500:]}), 500
 
+        send2trash(epub_path)
         _invalidate_file_cache()
         _warm_file_cache(downloads_dir)
-        return jsonify({"ok": True, "folder": stem, "txt": txt_name})
+        return jsonify({"ok": True, "txt": txt_name})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1615,14 +1609,26 @@ def epub_batch_convert():
 
 def _history_path():
     config = load_config()
+    hist_file = config.get("reader_history_file", ".reader_history.json")
+    # 절대경로면 바로 사용 (Windows 드라이브 경로는 WSL 변환)
+    if hist_file.startswith("/") or (len(hist_file) >= 2 and hist_file[1] == ":"):
+        return resolve_downloads_dir(hist_file)
     downloads_dir = resolve_downloads_dir(config.get("downloads_dir", ""))
     archive_folder = config.get("archive_folder", "소설")
-    return os.path.join(downloads_dir, archive_folder, ".reader_history.json")
+    return os.path.join(downloads_dir, archive_folder, hist_file)
 
 def _load_history():
     try:
         import json as _j
-        return _j.load(open(_history_path(), encoding="utf-8"))
+        data = _j.load(open(_history_path(), encoding="utf-8"))
+        if isinstance(data, dict):
+            # 뷰어 기록 파일이 {filename: {...}} 형식인 경우 list로 변환
+            return sorted(
+                [{"filename": k, **v} for k, v in data.items()],
+                key=lambda x: x.get("opened_at", ""),
+                reverse=True
+            )
+        return data
     except Exception:
         return []
 

@@ -18,16 +18,24 @@
     padding: 6px 10px; margin-bottom: 12px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  .input-row { display: flex; gap: 6px; align-items: center; }
   input {
-    width: 100%; padding: 8px 10px;
+    flex: 1; padding: 8px 10px;
     background: #313244; border: 1px solid #45475a;
     border-radius: 6px; color: #cdd6f4;
     font-size: 13px; outline: none;
   }
   input:focus { border-color: #89b4fa; }
-  .btns {
-    display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px;
+  .copy-btn {
+    flex-shrink: 0; background: #313244; border: 1px solid #45475a;
+    border-radius: 6px; color: #6c7086; cursor: pointer;
+    font-size: 14px; padding: 6px 10px; line-height: 1;
   }
+  .copy-btn:hover { color: #cdd6f4; border-color: #6c7086; }
+  .btns {
+    display: flex; gap: 8px; align-items: center; margin-top: 14px;
+  }
+  .btns-spacer { flex: 1; }
   button {
     padding: 7px 20px; border: none; border-radius: 6px;
     font-size: 13px; cursor: pointer; font-weight: 500;
@@ -44,11 +52,15 @@
   <div class="label">원본 파일명</div>
   <div class="orig" id="orig" title=""></div>
   <div class="label">저장할 파일명</div>
-  <input type="text" id="nameInput" spellcheck="false" />
+  <div class="input-row">
+    <input type="text" id="nameInput" spellcheck="false" />
+    <button class="copy-btn" id="copyBtn">⎘</button>
+  </div>
   <div class="btns">
-    <button class="cancel" id="cancelBtn">취소 (원본)</button>
+    <button class="ok" id="okBtn">원본 저장</button>
+    <div class="btns-spacer"></div>
+    <button class="cancel" id="cancelBtn">취소</button>
     <button class="convert" id="convertBtn">txt 변환 후 저장</button>
-    <button class="ok" id="okBtn">저장</button>
   </div>
   <script src="dialog.js"></script>
 </body>
