@@ -683,8 +683,25 @@ def search():
         else:
             partial.append((score, f))
 
-    exact.sort(key=lambda x: (-x[0], x[1].lower()))
-    partial.sort(key=lambda x: (-x[0], x[1].lower()))
+    # 보조 정렬: 쿼리 앞 단어와 일치할수록 높은 점수 (동점 파일 순서 결정)
+    query_list = [w for w in re.findall(r"[가-힣]+|[a-z]+|\d+", query_clean.lower())
+                  if len(w) >= min_word_len and w not in EXT_STOPWORDS]
+
+    def positional_score(fname):
+        name_lower = join_single_syllables(strip_episode(Path(fname).stem.lower()))
+        file_ws = {w for w in re.findall(r"[가-힣]+|[a-z]+|\d+", name_lower)
+                   if len(w) >= min_word_len and w not in EXT_STOPWORDS}
+        n = len(query_list)
+        s = 0
+        for i, qw in enumerate(query_list):
+            if qw in file_ws:
+                s += (n - i)          # 앞 단어일수록 가중치 높음
+            elif any(qw in fw or fw in qw for fw in file_ws):
+                s += (n - i) * 0.5   # 부분 일치
+        return s
+
+    exact.sort(key=lambda x: (-x[0], -positional_score(x[1]), x[1].lower()))
+    partial.sort(key=lambda x: (-x[0], -positional_score(x[1]), x[1].lower()))
 
     def to_item(fname):
         path = file_paths.get(fname, "")
