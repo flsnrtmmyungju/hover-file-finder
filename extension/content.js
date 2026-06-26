@@ -917,8 +917,11 @@
     // "225화" → 225
     const ep = name.match(/(\d+)\s*화\b/);
     if (ep) return parseInt(ep[1], 10);
-    // 2자리 이상 독립 숫자 중 최대값
-    const nums = [...name.matchAll(/\b(\d{2,})\b/g)].map(m => parseInt(m[1], 10));
+    // 배수/단위 뒤 숫자 제외 (9999999배, 1000조, 100억 등)
+    const excluded = new Set([...name.matchAll(/\b(\d+)\s*[배조억만천원달러]/g)].map(m => m[1]));
+    const nums = [...name.matchAll(/\b(\d{2,})\b/g)]
+      .filter(m => !excluded.has(m[1]))
+      .map(m => parseInt(m[1], 10));
     return nums.length ? Math.max(...nums) : null;
   }
 
