@@ -34,7 +34,7 @@
       width: "max-content",
       minWidth: "320px",
       maxWidth: "calc(100vw - 20px)",
-      maxHeight: "82vh",
+      height: "calc(100vh - 68px)",
       overflowY: "auto",
       boxShadow: "0 6px 24px rgba(0,0,0,.7)",
       display: "none",
@@ -541,7 +541,6 @@
     clearMulti();
     const el = getOverlay();
     el.innerHTML = "";
-    Object.assign(el.style, { maxHeight: "520px" });
 
     el.appendChild(makeTopButtons());
 
@@ -584,7 +583,7 @@
     };
 
     const listDiv = document.createElement("div");
-    Object.assign(listDiv.style, { maxHeight: "380px", overflowY: "auto" });
+    Object.assign(listDiv.style, { overflowY: "visible" });
     el.appendChild(listDiv);
 
     // 탭 전환
@@ -937,46 +936,50 @@
 
     if (!textarea && !voteBtn) return;
 
-    const el = getOverlay();
+    document.getElementById("__fhf_cbar__")?.remove();
 
-    const saved = voteBtn ? [{ el: voteBtn, parent: voteBtn.parentElement, next: voteBtn.nextSibling, style: voteBtn.getAttribute("style") || "" }] : [];
     if (voteBtn && voteBtn.tagName === 'A' && voteBtn.getAttribute('href') === '#') _suppressHashNav = true;
     _cbarRestoreFn = () => {
       _suppressHashNav = false;
-      saved.forEach(({ el: vel, parent, next, style }) => {
-        try { vel.setAttribute("style", style); if (parent && document.body.contains(parent)) next && parent.contains(next) ? parent.insertBefore(vel, next) : parent.appendChild(vel); } catch {}
-      });
+      document.getElementById("__fhf_cbar__")?.remove();
     };
 
-    const sep = document.createElement("div");
-    Object.assign(sep.style, { borderTop: "1px solid #45475a", margin: "8px 0 6px" });
-    el.appendChild(sep);
+    const bar = document.createElement("div");
+    bar.id = "__fhf_cbar__";
+    Object.assign(bar.style, {
+      position: "fixed", top: "0", left: "0", right: "0",
+      zIndex: "2147483646",
+      background: "#181825",
+      borderBottom: "2px solid #45475a",
+      padding: "6px 12px",
+      display: "flex", alignItems: "center", gap: "8px",
+      boxSizing: "border-box",
+      fontFamily: "'Segoe UI', system-ui, sans-serif",
+      boxShadow: "0 2px 12px rgba(0,0,0,.6)",
+      pointerEvents: "auto",
+    });
 
     if (voteBtn) {
-      // 현재 추천 수 읽기
       const countEl = voteBtn.querySelector('.count,.num,.vote-count,em,strong') ||
                       voteBtn.parentElement?.querySelector('.count,.num,.vote-count,em') ||
                       (voteBtn.tagName === 'A' ? voteBtn : null);
       const rawCount = countEl ? countEl.textContent.replace(/[^0-9]/g, '') : '';
       const curCount = rawCount ? parseInt(rawCount, 10) : null;
-
       const vb = document.createElement("button");
-      const countLabel = curCount !== null ? ` (${curCount} → ${curCount + 1})` : '';
-      vb.textContent = `👍 추천${countLabel}`;
-      Object.assign(vb.style, { padding: "4px 12px", background: "#a6e3a1", color: "#1e1e2e", border: "none", borderRadius: "4px", fontSize: "11px", fontWeight: "700", cursor: "pointer", marginBottom: "6px" });
+      vb.textContent = `👍 추천${curCount !== null ? ` (${curCount} → ${curCount + 1})` : ''}`;
+      Object.assign(vb.style, { padding: "4px 12px", background: "#a6e3a1", color: "#1e1e2e", border: "none", borderRadius: "4px", fontSize: "11px", fontWeight: "700", cursor: "pointer", flexShrink: "0" });
       vb.addEventListener("click", (e) => {
         e.stopPropagation();
         voteBtn.click();
-        const next = curCount !== null ? curCount + 1 : null;
-        vb.textContent = next !== null ? `✓ 추천됨 (${next})` : "✓ 추천됨";
+        vb.textContent = curCount !== null ? `✓ 추천됨 (${curCount + 1})` : "✓ 추천됨";
         vb.disabled = true;
       });
-      el.appendChild(vb);
+      bar.appendChild(vb);
     }
 
     if (textarea && submitBtn) {
       const ta = document.createElement("textarea");
-      Object.assign(ta.style, { width: "100%", height: "56px", background: "#313244", color: "#cdd6f4", border: "1px solid #45475a", borderRadius: "4px", fontSize: "11px", padding: "5px 8px", boxSizing: "border-box", resize: "none", outline: "none", display: "block" });
+      Object.assign(ta.style, { flex: "1", height: "30px", background: "#313244", color: "#cdd6f4", border: "1px solid #45475a", borderRadius: "4px", fontSize: "11px", padding: "4px 8px", boxSizing: "border-box", resize: "none", outline: "none", lineHeight: "1.4" });
       ta.value = makeAutoComment(items);
       ta.placeholder = "댓글 입력...";
       ta.addEventListener("click", (e) => e.stopPropagation());
@@ -984,7 +987,7 @@
 
       const sb = document.createElement("button");
       sb.textContent = "댓글 등록";
-      Object.assign(sb.style, { width: "100%", marginTop: "4px", padding: "5px 0", background: "#89b4fa", color: "#1e1e2e", border: "none", borderRadius: "4px", fontSize: "11px", fontWeight: "700", cursor: "pointer" });
+      Object.assign(sb.style, { padding: "4px 14px", background: "#89b4fa", color: "#1e1e2e", border: "none", borderRadius: "4px", fontSize: "11px", fontWeight: "700", cursor: "pointer", flexShrink: "0" });
       sb.addEventListener("click", (e) => {
         e.stopPropagation();
         const txt = ta.value.trim();
@@ -994,10 +997,24 @@
         submitBtn.click();
         sb.textContent = "✓ 등록"; sb.disabled = true;
       });
-
-      el.appendChild(ta);
-      el.appendChild(sb);
+      bar.appendChild(ta);
+      bar.appendChild(sb);
     }
+
+    const xBtn = document.createElement("button");
+    xBtn.textContent = "✕";
+    Object.assign(xBtn.style, { background: "none", border: "none", color: "#6c7086", fontSize: "14px", cursor: "pointer", flexShrink: "0", padding: "0 4px" });
+    xBtn.addEventListener("mouseenter", () => xBtn.style.color = "#cdd6f4");
+    xBtn.addEventListener("mouseleave", () => xBtn.style.color = "#6c7086");
+    xBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      bar.remove();
+      _suppressHashNav = false;
+      _cbarRestoreFn = null;
+    });
+    bar.appendChild(xBtn);
+
+    document.body.appendChild(bar);
   }
 
   function hide() {
