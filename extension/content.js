@@ -624,8 +624,22 @@
     el.scrollTop = 0;
     clearTimeout(hideTimer);
 
+    // 정규화 제목 기준으로 같은 소설끼리 모아 정렬
+    const _normTitle = it => filterNovelTitle(it.displayName || it.text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const _titleCount = new Map();
+    items.forEach(it => {
+      const nt = _normTitle(it);
+      _titleCount.set(nt, (_titleCount.get(nt) || 0) + 1);
+    });
+    const sortedItems = [...items].sort((a, b) => {
+      const na = _normTitle(a), nb = _normTitle(b);
+      if (na !== nb) return na < nb ? -1 : 1;
+      return (a.siteIndex || 0) - (b.siteIndex || 0);
+    });
+
     // 각 항목을 즉시 렌더 후 개별 fetch
-    items.forEach(({ text: searchText, displayName, size, dlEl }) => {
+    sortedItems.forEach(({ text: searchText, displayName, size, dlEl }) => {
+      const isDup = _titleCount.get(_normTitle({ displayName, text: searchText })) > 1;
       const rawName = displayName || searchText;
       const pageEp = extractEpNum(rawName);
 
@@ -647,6 +661,13 @@
 
       topRow.appendChild(arrow);
       topRow.appendChild(nm);
+
+      if (isDup) {
+        const dupBadge = document.createElement("span");
+        dupBadge.textContent = "중복?";
+        Object.assign(dupBadge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#f9e2af", color: "#1e1e2e", borderRadius: "3px", padding: "1px 5px" });
+        topRow.appendChild(dupBadge);
+      }
 
       if (size) {
         const sz = document.createElement("span");
