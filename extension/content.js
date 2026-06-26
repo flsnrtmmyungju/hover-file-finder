@@ -808,12 +808,12 @@
               if (fileEp === pageEp) {
                 const badge = document.createElement("span");
                 badge.textContent = `일치 (${fileEp})`;
-                Object.assign(badge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#89b4fa", color: "#1e1e2e", borderRadius: "3px", padding: "1px 5px" });
+                Object.assign(badge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#e6ff4e", color: "#1e1e2e", borderRadius: "3px", padding: "1px 5px" });
                 row.appendChild(badge);
                 if (!dlNewBadge && !dlOldBadge) {
                   dlNewBadge = document.createElement("span");
                   dlNewBadge.textContent = `일치 (${pageEp})`;
-                  Object.assign(dlNewBadge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#89b4fa", color: "#1e1e2e", borderRadius: "3px", padding: "1px 5px" });
+                  Object.assign(dlNewBadge.style, { flexShrink: "0", fontSize: "9px", fontWeight: "700", background: "#e6ff4e", color: "#1e1e2e", borderRadius: "3px", padding: "1px 5px" });
                 }
               } else if (fileEp > pageEp) {
                 const badge = document.createElement("span");
